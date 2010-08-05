@@ -8,7 +8,7 @@ import xmlrpclib
 
 from scrapy.http.request import Request
 from scrapy.utils.python import get_func_args
-
+from scrapy.utils.py26 import json
 
 DUMPS_ARGS = get_func_args(xmlrpclib.dumps)
 
@@ -35,3 +35,32 @@ class XmlRpcRequest(Request):
 
         super(XmlRpcRequest, self).__init__(*args, **kwargs)
         self.headers.setdefault('Content-Type', 'text/xml')
+
+
+class JsonRpcRequest(Request):
+
+    __slots__ = ('rpc_method',)
+
+    def __init__(self, *args, **kwargs):
+        req_params = None
+        self.rpc_method = ""
+        if 'body' not in kwargs and 'rpc_params' in kwargs:
+            self.rpc_method = kwargs.pop('rpc_method')
+            req_params = {'jsonrpc': '2.0',
+                          'method': self.rpc_method,
+                          'params': kwargs.pop("rpc_params"),
+                          'id': 1}
+            
+        
+        # spec defines that requests must use POST method
+        kwargs.setdefault('method', 'POST')
+
+        # rpc query multiples times over the same url
+        kwargs.setdefault('dont_filter', True)
+
+        super(JsonRpcRequest, self).__init__(*args, **kwargs)
+        if req_params:
+            self.body = json.dumps(req_params)
+
+    def __str__(self):
+        return "<JSON call to %s: %s>" % (self.url, self.rpc_method)

@@ -98,6 +98,7 @@ setup_args = {
     'cmdclass': cmdclasses,
     'data_files': data_files,
     'scripts': ['bin/scrapy-ctl.py', 'bin/scrapy-ws.py', 'bin/scrapy-sqs.py'],
+    'console_scripts': ['bin/scrapy-ctl.py', 'bin/scrapy-ws.py', 'bin/scrapy-sqs.py'],
     'classifiers': [
         'Programming Language :: Python',
         'Programming Language :: Python :: 2.5',

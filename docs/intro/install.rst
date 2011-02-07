@@ -6,6 +6,10 @@ Installation guide
 
 This document describes how to install Scrapy on Linux, Windows and Mac OS X.
 
+If you use Ubuntu (9.10 or above), you can use the :ref:`Ubuntu packages
+<topics-ubuntu>` to install Scrapy more easily, skipping these steps. The
+Ubuntu packages are also kept updated with latest bug fixes.
+
 .. _intro-install-requirements:
 
 Requirements

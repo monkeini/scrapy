@@ -77,7 +77,32 @@ class ExecutionQueue(object):
         if spider:
             requests = arg_to_iter(spider.make_requests_from_url(url))
             self.spider_requests.append((spider, requests))
-
+     
+    def append_meta_urls(self, metaurls=None, spider=None, **kwargs):
+        """Append multiple urls for a single spider
+        Expects metaurls list of (id, url, metadata_dict) tuples
+        """
+        if metaurls is None or not isinstance(metaurls, list):
+            raise ValueError("A list of URLs is required")
+        if spider is None:
+            spider = create_spider_for_request(self._spiders, Request(metaurls[0][1]), \
+                **kwargs)
+        if spider:
+            request_list = []
+            for id, url, metadata in metaurls:
+                # create request
+                req = spider.make_requests_from_url(url)
+                # append metadata it exists
+                if metadata and isinstance(metadata, dict):
+                    req.meta.update(metadata)
+                # also add in linkstore id for post-scrape purposes
+                req.meta.update({"linkstore_id": id})
+                
+                request_list.append(req)
+            
+            requests = arg_to_iter(request_list)
+            self.spider_requests.append((spider, requests))
+     
     def append_spider_name(self, name=None, **spider_kwargs):
         """Append a spider to crawl given its name and optional arguments,
         which are used to instantiate it. The SpiderManager is used to lookup

@@ -95,14 +95,18 @@ class ExecutionQueue(object):
 
             for id, url, metadata in metaurls:
                 # create request
-                req = spider.make_requests_from_url(url)
-                # append metadata it exists
-                if metadata and isinstance(metadata, dict):
-                    req.meta.update(metadata)
-                # also add in linkstore id for post-scrape purposes
-                req.meta.update({"linkstore_id": id})
-                
-                request_list.append(req)
+                requests = spider.make_requests_from_url(url)
+
+                if isinstance(requests, Request):
+                    requests = [requests]
+
+                for req in requests:
+                    # append metadata it exists
+                    if metadata and isinstance(metadata, dict):
+                        req.meta.update(metadata)
+                    # also add in linkstore id for post-scrape purposes
+                    req.meta.update({"linkstore_id": id})
+                    request_list.append(req)
 	    
             if cookie_req:
                 request_list.append(cookie_req)

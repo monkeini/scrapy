@@ -89,27 +89,22 @@ class ExecutionQueue(object):
                 **kwargs)
         if spider:
             request_list = []
-            cookie_req = None
-            if spider.pre_requests and spider.pre_requests.has_key(spider.currency):
-                cookie_req = spider.pre_requests[spider.currency] 
 
             for id, url, metadata in metaurls:
                 # create request
-                requests = spider.make_requests_from_url(url)
-
+                requests = spider.make_requests_from_url_meta(url, id, metadata)
                 if isinstance(requests, Request):
                     requests = [requests]
 
-                for req in requests:
-                    # append metadata it exists
-                    if metadata and isinstance(metadata, dict):
-                        req.meta.update(metadata)
-                    # also add in linkstore id for post-scrape purposes
-                    req.meta.update({"linkstore_id": id})
-                    request_list.append(req)
-	    
-            if cookie_req:
-                request_list.append(cookie_req)
+                if requests:
+                    for req in requests:
+                        # append metadata it exists
+                        if metadata and isinstance(metadata, dict):
+                            req.meta.update(metadata)
+                        # also add in linkstore id for post-scrape purposes
+                        req.meta.update({"linkstore_id": id})
+                        request_list.append(req)
+
             requests = arg_to_iter(request_list)
             self.spider_requests.append((spider, requests))
      

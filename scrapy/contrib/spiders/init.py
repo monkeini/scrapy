@@ -1,4 +1,5 @@
 from scrapy.spider import BaseSpider
+from scrapy.http import Request
 
 class InitSpider(BaseSpider):
     """Base Spider with initialization facilities"""
@@ -11,6 +12,25 @@ class InitSpider(BaseSpider):
 
     def make_requests_from_url(self, url):
         req = super(InitSpider, self).make_requests_from_url(url)
+        if self._init_complete:
+            return req
+        self._postinit_reqs.append(req)
+        if not self._init_started:
+            self._init_started = True
+            return self.init_request()
+
+    def make_requests_from_url_meta(self, url, id, metadata):
+        reqs = super(InitSpider, self).make_requests_from_url(url)
+        if isinstance(reqs, Request):
+            reqs = [reqs]
+
+        if reqs:
+            for req in reqs:
+                # append metadata it exists
+                if metadata and isinstance(metadata, dict):
+                    req.meta.update(metadata)
+                    # also add in linkstore id for post-scrape purposes
+                req.meta.update({"linkstore_id": id})
         if self._init_complete:
             return req
         self._postinit_reqs.append(req)

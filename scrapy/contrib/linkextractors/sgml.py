@@ -23,6 +23,8 @@ class BaseSgmlLinkExtractor(FixedSGMLParser):
 
     def _extract_links(self, response_text, response_url, response_encoding, base_url=None):
         """ Do the real extraction work """
+        response_text = response_text.replace("<! --", "<!--") #Retailer's invalid html
+        
         self.reset()
         self.feed(response_text)
         self.close()

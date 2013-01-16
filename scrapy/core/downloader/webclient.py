@@ -1,13 +1,15 @@
+from time import time
 from urlparse import urlparse, urlunparse, urldefrag
 
 from twisted.python import failure
-from twisted.web.client import PartialDownloadError, HTTPClientFactory
+from twisted.web.client import HTTPClientFactory
 from twisted.web.http import HTTPClient
 from twisted.internet import defer
 
 from scrapy.http import Headers
 from scrapy.utils.httpobj import urlparse_cached
-from scrapy.core.downloader.responsetypes import responsetypes
+from scrapy.responsetypes import responsetypes
+from scrapy import optional_features
 
 
 def _parsed_url_args(parsed):
@@ -64,9 +66,6 @@ class ScrapyHTTPPageGetter(HTTPClient):
     def handleResponse(self, response):
         if self.factory.method.upper() == 'HEAD':
             self.factory.page('')
-        elif self.length != None and self.length != 0:
-            self.factory.noPage(failure.Failure(
-                PartialDownloadError(self.factory.status, None, response)))
         else:
             self.factory.page(response)
         self.transport.loseConnection()
@@ -97,7 +96,16 @@ class ScrapyHTTPClientFactory(HTTPClientFactory):
         self.headers = Headers(request.headers)
         self.response_headers = None
         self.timeout = request.meta.get('download_timeout') or timeout
-        self.deferred = defer.Deferred().addCallback(self._build_response)
+        self.start_time = time()
+        self.deferred = defer.Deferred().addCallback(self._build_response, request)
+
+        # Fixes Twisted 11.1.0+ support as HTTPClientFactory is expected
+        # to have _disconnectedDeferred. See Twisted r32329.
+        # As Scrapy implements it's own logic to handle redirects is not
+        # needed to add the callback _waitForDisconnect.
+        # Specifically this avoids the AttributeError exception when
+        # clientConnectionFailed method is called.
+        self._disconnectedDeferred = defer.Deferred()
 
         self._set_connection_attributes(request)
 
@@ -110,7 +118,8 @@ class ScrapyHTTPClientFactory(HTTPClientFactory):
             # just in case a broken http/1.1 decides to keep connection alive
             self.headers.setdefault("Connection", "close")
 
-    def _build_response(self, body):
+    def _build_response(self, body, request):
+        request.meta['download_latency'] = self.headers_time-self.start_time
         status = int(self.status)
         headers = Headers(self.response_headers)
         respcls = responsetypes.from_args(headers=headers, url=self.url)
@@ -125,4 +134,26 @@ class ScrapyHTTPClientFactory(HTTPClientFactory):
             self.path = self.url
 
     def gotHeaders(self, headers):
+        self.headers_time = time()
         self.response_headers = headers
+
+
+
+if 'ssl' in optional_features:
+    from twisted.internet.ssl import ClientContextFactory
+    from OpenSSL import SSL
+else:
+    ClientContextFactory = object
+
+
+class ScrapyClientContextFactory(ClientContextFactory):
+    "A SSL context factory which is more permissive against SSL bugs."
+    # see https://github.com/scrapy/scrapy/issues/82
+    # and https://github.com/scrapy/scrapy/issues/26
+
+    def getContext(self):
+        ctx = ClientContextFactory.getContext(self)
+        # Enable all workarounds to SSL bugs as documented by
+        # http://www.openssl.org/docs/ssl/SSL_CTX_set_options.html
+        ctx.set_options(SSL.OP_ALL)
+        return ctx

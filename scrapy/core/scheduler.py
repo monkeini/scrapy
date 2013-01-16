@@ -1,85 +1,121 @@
-"""
-The Scrapy Scheduler
-"""
+import os
+import json
+from os.path import join, exists
 
-from twisted.internet import defer
-from twisted.python.failure import Failure
-
-from scrapy.utils.datatypes import PriorityQueue, PriorityStack
-from scrapy.core.schedulermw import SchedulerMiddlewareManager
-from scrapy.exceptions import IgnoreRequest
-from scrapy.conf import settings
+from scrapy.utils.pqueue import PriorityQueue
+from scrapy.utils.reqser import request_to_dict, request_from_dict
+from scrapy.utils.misc import load_object
+from scrapy.utils.job import job_dir
+from scrapy import log
 
 class Scheduler(object):
-    """The scheduler decides what to scrape next. In other words, it defines the
-    crawling order. The scheduler schedules websites and requests to be
-    scraped. Individual web pages that are to be scraped are batched up into a
-    "run" for a website. New pages discovered through the crawling process are
-    also added to the scheduler.
-    """
 
-    def __init__(self):
-        self.pending_requests = {}
-        self.dfo = settings['SCHEDULER_ORDER'].upper() == 'DFO'
-        self.middleware = SchedulerMiddlewareManager.from_settings(settings)
+    def __init__(self, dupefilter, jobdir=None, dqclass=None, mqclass=None, logunser=False, stats=None):
+        self.df = dupefilter
+        self.dqdir = self._dqdir(jobdir)
+        self.dqclass = dqclass
+        self.mqclass = mqclass
+        self.logunser = logunser
+        self.stats = stats
 
-    def spider_is_open(self, spider):
-        """Check if scheduler's resources were allocated for a spider"""
-        return spider in self.pending_requests
+    @classmethod
+    def from_crawler(cls, crawler):
+        settings = crawler.settings
+        dupefilter_cls = load_object(settings['DUPEFILTER_CLASS'])
+        dupefilter = dupefilter_cls.from_settings(settings)
+        dqclass = load_object(settings['SCHEDULER_DISK_QUEUE'])
+        mqclass = load_object(settings['SCHEDULER_MEMORY_QUEUE'])
+        logunser = settings.getbool('LOG_UNSERIALIZABLE_REQUESTS')
+        return cls(dupefilter, job_dir(settings), dqclass, mqclass, logunser, crawler.stats)
 
-    def spider_has_pending_requests(self, spider):
-        """Check if are there pending requests for a spider"""
-        if spider in self.pending_requests:
-            return bool(self.pending_requests[spider])
+    def has_pending_requests(self):
+        return len(self) > 0
 
-    def open_spider(self, spider):
-        """Allocates scheduling resources for the given spider"""
-        if spider in self.pending_requests:
-            raise RuntimeError('Scheduler spider already opened: %s' % spider)
+    def open(self, spider):
+        self.spider = spider
+        self.mqs = PriorityQueue(self._newmq)
+        self.dqs = self._dq() if self.dqdir else None
+        return self.df.open()
 
-        Priority = PriorityStack if self.dfo else PriorityQueue
-        self.pending_requests[spider] = Priority()
-        return self.middleware.open_spider(spider)
+    def close(self, reason):
+        if self.dqs:
+            prios = self.dqs.close()
+            with open(join(self.dqdir, 'active.json'), 'w') as f:
+                json.dump(prios, f)
+        return self.df.close(reason)
 
-    def close_spider(self, spider):
-        """Called when a spider has finished scraping to free any resources
-        associated with the spider.
-        """
-        if spider not in self.pending_requests:
-            raise RuntimeError('Scheduler spider is not open: %s' % spider)
-        self.pending_requests.pop(spider, None)
-        return self.middleware.close_spider(spider)
+    def enqueue_request(self, request):
+        if not request.dont_filter and self.df.request_seen(request):
+            return
+        dqok = self._dqpush(request)
+        if dqok:
+            self.stats.inc_value('scheduler/enqueued/disk', spider=self.spider)
+        else:
+            self._mqpush(request)
+            self.stats.inc_value('scheduler/enqueued/memory', spider=self.spider)
+        self.stats.inc_value('scheduler/enqueued', spider=self.spider)
 
-    def enqueue_request(self, spider, request):
-        """Enqueue a request to be downloaded for a spider that is currently being scraped."""
-        return self.middleware.enqueue_request(self._enqueue_request, spider, request)
+    def next_request(self):
+        request = self.mqs.pop()
+        if request:
+            self.stats.inc_value('scheduler/dequeued/memory', spider=self.spider)
+        else:
+            request = self._dqpop()
+            if request:
+                self.stats.inc_value('scheduler/dequeued/disk', spider=self.spider)
+        if request:
+            self.stats.inc_value('scheduler/dequeued', spider=self.spider)
+        return request
 
-    def _enqueue_request(self, spider, request):
-        dfd = defer.Deferred()
-        self.pending_requests[spider].push((request, dfd), -request.priority)
-        return dfd
+    def __len__(self):
+        return len(self.dqs) + len(self.mqs) if self.dqs else len(self.mqs)
 
-    def clear_pending_requests(self, spider):
-        """Remove all pending requests for the given spider"""
-        q = self.pending_requests[spider]
-        while q:
-            _, dfd = q.pop()[0]
-            dfd.errback(Failure(IgnoreRequest()))
-
-    def next_request(self, spider):
-        """Return the next available request to be downloaded for a spider.
-
-        Returns a pair ``(request, deferred)`` where ``deferred`` is the
-        `Deferred` instance returned to the original requester.
-
-        ``(None, None)`` is returned if there aren't any request pending for
-        the given spider.
-        """
+    def _dqpush(self, request):
+        if self.dqs is None:
+            return
         try:
-            return self.pending_requests[spider].pop()[0] # [1] is priority
-        except (KeyError, IndexError):
-            return (None, None)
+            reqd = request_to_dict(request, self.spider)
+            self.dqs.push(reqd, -request.priority)
+        except ValueError, e: # non serializable request
+            if self.logunser:
+                log.msg(format="Unable to serialize request: %(request)s - reason: %(reason)s",
+                        level=log.ERROR, spider=self.spider,
+                        request=request, reason=e)
+            return
+        else:
+            return True
 
-    def is_idle(self):
-        """Checks if the schedulers has any request pendings"""
-        return not self.pending_requests
+    def _mqpush(self, request):
+        self.mqs.push(request, -request.priority)
+
+    def _dqpop(self):
+        if self.dqs:
+            d = self.dqs.pop()
+            if d:
+                return request_from_dict(d, self.spider)
+
+    def _newmq(self, priority):
+        return self.mqclass()
+
+    def _newdq(self, priority):
+        return self.dqclass(join(self.dqdir, 'p%s' % priority))
+
+    def _dq(self):
+        activef = join(self.dqdir, 'active.json')
+        if exists(activef):
+            with open(activef) as f:
+                prios = json.load(f)
+        else:
+            prios = ()
+        q = PriorityQueue(self._newdq, startprios=prios)
+        if q:
+            log.msg(format="Resuming crawl (%(queuesize)d requests scheduled)",
+                    spider=self.spider, queuesize=len(q))
+        return q
+
+    def _dqdir(self, jobdir):
+        if jobdir:
+            dqdir = join(jobdir, 'requests.queue')
+            if not exists(dqdir):
+                os.makedirs(dqdir)
+            return dqdir

@@ -1,11 +1,11 @@
 from collections import defaultdict
 from twisted.internet.defer import Deferred, DeferredList
+from twisted.python.failure import Failure
 
 from scrapy.utils.defer import mustbe_deferred, defer_result
 from scrapy import log
 from scrapy.utils.request import request_fingerprint
 from scrapy.utils.misc import arg_to_iter
-
 
 class MediaPipeline(object):
 
@@ -20,17 +20,16 @@ class MediaPipeline(object):
 
     def __init__(self, download_func=None):
         self.spiderinfo = {}
-        self._cached_download_func = download_func
+        self.download_func = download_func
 
-    @property
-    def _download_func(self):
-        if self._cached_download_func is None:
-            self._cached_download_func = self._default_download_func()
-        return self._cached_download_func
-
-    def _default_download_func(self):
-        from scrapy.project import crawler
-        return crawler.engine.download
+    @classmethod
+    def from_crawler(cls, crawler):
+        try:
+            pipe = cls.from_settings(crawler.settings)
+        except AttributeError:
+            pipe = cls()
+        pipe.crawler = crawler
+        return pipe
 
     def open_spider(self, spider):
         self.spiderinfo[spider] = self.SpiderInfo(spider)
@@ -49,6 +48,8 @@ class MediaPipeline(object):
         fp = request_fingerprint(request)
         cb = request.callback or (lambda _: _)
         eb = request.errback
+        request.callback = None
+        request.errback = None
 
         # Return cached result if request was already seen
         if fp in info.downloaded:
@@ -73,22 +74,32 @@ class MediaPipeline(object):
     def _check_media_to_download(self, result, request, info):
         if result is not None:
             return result
-        # Download request and process its response
-        return mustbe_deferred(self.download, request, info).addCallbacks(
+        if self.download_func:
+            # this ugly code was left only to support tests. TODO: remove
+            dfd = mustbe_deferred(self.download_func, request, info.spider)
+            dfd.addCallbacks(
                 callback=self.media_downloaded, callbackArgs=(request, info),
                 errback=self.media_failed, errbackArgs=(request, info))
+        else:
+            request.meta['handle_httpstatus_all'] = True
+            dfd = self.crawler.engine.download(request, info.spider)
+            dfd.addCallbacks(
+                callback=self.media_downloaded, callbackArgs=(request, info),
+                errback=self.media_failed, errbackArgs=(request, info))
+        return dfd
 
     def _cache_result_and_execute_waiters(self, result, fp, info):
+        if isinstance(result, Failure):
+            # minimize cached information for failure
+            result.cleanFailure()
+            result.frames = []
+            result.stack = None
         info.downloading.remove(fp)
         info.downloaded[fp] = result # cache result
         for wad in info.waiting.pop(fp):
             defer_result(result).chainDeferred(wad)
 
     ### Overradiable Interface
-    def download(self, request, info):
-        """Defines how to download the media request"""
-        return self._download_func(request, info.spider)
-
     def media_to_download(self, request, info):
         """Check request before starting download"""
         pass

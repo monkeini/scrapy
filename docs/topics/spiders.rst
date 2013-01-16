@@ -4,10 +4,11 @@
 Spiders
 =======
 
-Spiders are classes which define how a certain site (or domain) will be
-scraped, including how to crawl the site and how to extract scraped items from
-their pages. In other words, Spiders are the place where you define the custom
-behaviour for crawling and parsing pages for a particular site.
+Spiders are classes which define how a certain site (or group of sites) will be
+scraped, including how to perform the crawl (ie. follow links) and how to
+extract structured data from their pages (ie. scraping items). In other words,
+Spiders are the place where you define the custom behaviour for crawling and
+parsing pages for a particular site (or, in some cases, group of sites).
 
 For spiders, the scraping cycle goes through something like this:
 
@@ -32,21 +33,52 @@ For spiders, the scraping cycle goes through something like this:
    :ref:`topics-selectors` (but you can also use BeautifuSoup, lxml or whatever
    mechanism you prefer) and generate items with the parsed data.
 
-4. Finally, the items returned from the spider will be typically persisted in
-   some Item pipeline.
+4. Finally, the items returned from the spider will be typically persisted to a
+   database (in some :ref:`Item Pipeline <topics-item-pipeline>`) or written to
+   a file using :ref:`topics-feed-exports`.
 
 Even though this cycle applies (more or less) to any kind of spider, there are
 different kinds of default spiders bundled into Scrapy for different purposes.
 We will talk about those types here.
 
+.. _spiderargs:
+
+Spider arguments
+================
+
+Spiders can receive arguments that modify their behaviour. Some common uses for
+spider arguments are to define the start URLs or to restrict the crawl to
+certain sections of the site, but they can be used to configure any
+functionality of the spider.
+
+Spider arguments are passed through the :command:`crawl` command using the
+``-a`` option. For example::
+
+    scrapy crawl myspider -a category=electronics
+
+Spiders receive arguments in their constructors::
+
+    class MySpider(BaseSpider):
+        name = 'myspider'
+
+        def __init__(self, category=None):
+            self.start_urls = ['http://www.example.com/categories/%s' % category]
+            # ...
+
+Spider arguments can also be passed through the :ref:`scrapyd-schedule` API.
 
 .. _topics-spiders-ref:
 
 Built-in spiders reference
 ==========================
 
-For the examples used in the following spiders reference, we'll assume we have a
-``TestItem`` declared in a ``myproject.items`` module, in your project::
+Scrapy comes with some useful generic spiders that you can use, to subclass
+your spiders from. Their aim is to provide convenient functionality for a few
+common scraping cases, like following all links on a site based on certain
+rules, crawling from `Sitemaps`_, or parsing a XML/CSV feed.
+
+For the examples used in the following spiders, we'll assume you have a project
+with a ``TestItem`` declared in a ``myproject.items`` module::
 
     from scrapy.item import Item
 
@@ -78,7 +110,10 @@ BaseSpider
        instance of the same spider. This is the most important spider attribute
        and it's required.
 
-       Is recommended to name your spiders after the domain that their crawl.
+       If the spider scrapes a single domain, a common practice is to name the
+       spider after the domain, or without the `TLD`_. So, for example, a
+       spider that crawls ``mywebsite.com`` would often be called
+       ``mywebsite``.
 
    .. attribute:: allowed_domains
 
@@ -144,7 +179,7 @@ BaseSpider
        the same requirements as the :class:`BaseSpider` class.
 
        This method, as well as any other Request callback, must return an
-       iterable of :class:`~scrapy.http.Request~ and/or
+       iterable of :class:`~scrapy.http.Request` and/or
        :class:`~scrapy.item.Item` objects.
 
        :param response: the response to parse
@@ -228,6 +263,7 @@ CrawlSpider
        
 Crawling rules
 ~~~~~~~~~~~~~~
+
 .. class:: Rule(link_extractor, callback=None, cb_kwargs=None, follow=None, process_links=None, process_request=None)
 
    ``link_extractor`` is a :ref:`Link Extractor <topics-link-extractors>` object which
@@ -238,6 +274,11 @@ Crawling rules
    the specified link_extractor. This callback receives a response as its first
    argument and must return a list containing :class:`~scrapy.item.Item` and/or
    :class:`~scrapy.http.Request` objects (or any subclass of them).
+
+   .. warning:: When writing crawl spider rules, avoid using ``parse`` as
+       callback, since the :class:`CrawlSpider` uses the ``parse`` method
+       itself to implement its logic. So if you override the ``parse`` method,
+       the crawl spider will no longer work.
 
    ``cb_kwargs`` is a dict containing the keyword arguments to be passed to the
    callback function
@@ -251,13 +292,13 @@ Crawling rules
    of links extracted from each response using the specified ``link_extractor``.
    This is mainly used for filtering purposes. 
 
-    ``process_request`` is a callable, or a string (in which case a method from
-    the spider object with that name will be used) which will be called with
-    every request extracted by this rule, and must return a request or None (to
-    filter out the request).
+   ``process_request`` is a callable, or a string (in which case a method from
+   the spider object with that name will be used) which will be called with
+   every request extracted by this rule, and must return a request or None (to
+   filter out the request).
 
 CrawlSpider example
--------------------
+~~~~~~~~~~~~~~~~~~~
 
 Let's now take a look at an example CrawlSpider with rules::
 
@@ -460,3 +501,127 @@ Let's see an example similar to the previous one, but using a
             item['name'] = row['name']
             item['description'] = row['description']
             return item
+
+
+SitemapSpider
+-------------
+
+.. class:: SitemapSpider
+
+    SitemapSpider allows you to crawl a site by discovering the URLs using
+    `Sitemaps`_.
+
+    It supports nested sitemaps and discovering sitemap urls from
+    `robots.txt`_.
+
+    .. attribute:: sitemap_urls
+
+        A list of urls pointing to the sitemaps whose urls you want to crawl.
+
+        You can also point to a `robots.txt`_ and it will be parsed to extract
+        sitemap urls from it.
+
+    .. attribute:: sitemap_rules
+
+        A list of tuples ``(regex, callback)`` where:
+
+        * ``regex`` is a regular expression to match urls extracted from sitemaps.
+          ``regex`` can be either a str or a compiled regex object.
+
+        * callback is the callback to use for processing the urls that match
+          the regular expression. ``callback`` can be a string (indicating the
+          name of a spider method) or a callable.
+
+        For example::
+
+            sitemap_rules = [('/product/', 'parse_product')]
+
+        Rules are applied in order, and only the first one that matches will be
+        used.
+
+        If you omit this attribute, all urls found in sitemaps will be
+        processed with the ``parse`` callback.
+
+    .. attribute:: sitemap_follow
+
+        A list of regexes of sitemap that should be followed. This is is only
+        for sites that use `Sitemap index files`_ that point to other sitemap
+        files.
+
+        By default, all sitemaps are followed.
+
+
+SitemapSpider examples
+~~~~~~~~~~~~~~~~~~~~~~
+
+Simplest example: process all urls discovered through sitemaps using the
+``parse`` callback::
+
+    from scrapy.contrib.spiders import SitemapSpider
+
+    class MySpider(SitemapSpider):
+        sitemap_urls = ['http://www.example.com/sitemap.xml']
+
+        def parse(self, response):
+            pass # ... scrape item here ...
+
+Process some urls with certain callback and other urls with a different
+callback::
+
+    from scrapy.contrib.spiders import SitemapSpider
+
+    class MySpider(SitemapSpider):
+        sitemap_urls = ['http://www.example.com/sitemap.xml']
+        sitemap_rules = [
+            ('/product/', 'parse_product'),
+            ('/category/', 'parse_category'),
+        ]
+
+        def parse_product(self, response):
+            pass # ... scrape product ...
+
+        def parse_category(self, response):
+            pass # ... scrape category ...
+
+Follow sitemaps defined in the `robots.txt`_ file and only follow sitemaps
+whose url contains ``/sitemap_shop``::
+
+    from scrapy.contrib.spiders import SitemapSpider
+
+    class MySpider(SitemapSpider):
+        sitemap_urls = ['http://www.example.com/robots.txt']
+        sitemap_rules = [
+            ('/shop/', 'parse_shop'),
+        ]
+        sitemap_follow = ['/sitemap_shops']
+
+        def parse_shop(self, response):
+            pass # ... scrape shop here ...
+
+Combine SitemapSpider with other sources of urls::
+
+    from scrapy.contrib.spiders import SitemapSpider
+
+    class MySpider(SitemapSpider):
+        sitemap_urls = ['http://www.example.com/robots.txt']
+        sitemap_rules = [
+            ('/shop/', 'parse_shop'),
+        ]
+
+        other_urls = ['http://www.example.com/about']
+
+        def start_requests(self):
+            requests = list(super(MySpider, self).start_requests())
+            requests += [Request(x, callback=self.parse_other) for x in self.other_urls]
+            return requests
+
+        def parse_shop(self, response):
+            pass # ... scrape shop here ...
+
+        def parse_other(self, response):
+            pass # ... scrape other here ...
+
+.. _Sitemaps: http://www.sitemaps.org
+.. _Sitemap index files: http://www.sitemaps.org/protocol.php#index
+.. _robots.txt: http://www.robotstxt.org/
+.. _TLD: http://en.wikipedia.org/wiki/Top-level_domain

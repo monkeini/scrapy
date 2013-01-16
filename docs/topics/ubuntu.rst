@@ -7,10 +7,10 @@ Ubuntu packages
 <<<<<<< HEAD
 .. versionadded:: 0.10
 
-`Insophia`_ publishes apt-gettable packages which are generally fresher than
-those in Ubuntu, and more stable too since they're built continously from
-`Scrapy Mercurial repositories`_ (stable & development) and so they contain the
-latest bug fixes.
+`Scrapinghub`_ publishes apt-gettable packages which are generally fresher than
+those in Ubuntu, and more stable too since they're continuously built from
+`Github repo`_ (master & stable branches) and so they contain the latest bug
+fixes.
 
 To use the packages, just add the following line to your
 ``/etc/apt/sources.list``, and then run ``aptitude update`` and ``aptitude
@@ -23,7 +23,20 @@ with command::
 
     lsb_release -cs
 
-Supported Ubuntu releases are: ``karmic``, ``lucid``, ``maverick``.
+Supported Ubuntu releases are: ``karmic``, ``lucid``, ``maverick``, ``natty``,
+``oneiric``, ``precise``.
+
+For Ubuntu Precise (12.04)::
+
+    deb http://archive.scrapy.org/ubuntu precise main
+
+For Ubuntu Oneiric (11.10)::
+
+    deb http://archive.scrapy.org/ubuntu oneiric main
+
+For Ubuntu Natty (11.04)::
+
+    deb http://archive.scrapy.org/ubuntu natty main
 
 For Ubuntu Maverick (10.10)::
 
@@ -66,5 +79,5 @@ keyring as follows::
     curl -s http://archive.scrapy.org/debian/archive.key | sudo apt-key add -
 >>>>>>> bdb1ca13b86e199bcef5de55af4930ba54402db8
 
-.. _Insophia: http://insophia.com/
-.. _Scrapy Mercurial repositories: http://hg.scrapy.org/
+.. _Scrapinghub: http://scrapinghub.com/
+.. _Github repo: https://github.com/scrapy/scrapy

@@ -6,12 +6,10 @@ See documentation in docs/topics/spiders.rst
 """
 
 import copy
-from functools import partial
 
-from scrapy.http import Request
+from scrapy.http import Request, HtmlResponse
 from scrapy.utils.spider import iterate_spider_output
-from scrapy.contrib.spiders.init import InitSpider
-from scrapy.conf import settings
+from scrapy.spider import BaseSpider
 
 def identity(x):
     return x
@@ -29,7 +27,7 @@ class Rule(object):
         else:
             self.follow = follow
 
-class CrawlSpider(InitSpider):
+class CrawlSpider(BaseSpider):
 
     rules = ()
 
@@ -38,7 +36,7 @@ class CrawlSpider(InitSpider):
         self._compile_rules()
 
     def parse(self, response):
-        return self._response_downloaded(response, self.parse_start_url, cb_kwargs={}, follow=True)
+        return self._parse_response(response, self.parse_start_url, cb_kwargs={}, follow=True)
 
     def parse_start_url(self, response):
         return []
@@ -47,30 +45,33 @@ class CrawlSpider(InitSpider):
         return results
 
     def _requests_to_follow(self, response):
+        if not isinstance(response, HtmlResponse):
+            return
         seen = set()
-        for rule in self._rules:
+        for n, rule in enumerate(self._rules):
             links = [l for l in rule.link_extractor.extract_links(response) if l not in seen]
             if links and rule.process_links:
                 links = rule.process_links(links)
             seen = seen.union(links)
             for link in links:
-                callback = partial(self._response_downloaded, callback=rule.callback, \
-                    cb_kwargs=rule.cb_kwargs, follow=rule.follow)
-                r = Request(url=link.url, callback=callback)
-                r.meta['link_text'] = link.text
+                r = Request(url=link.url, callback=self._response_downloaded)
+                r.meta.update(rule=n, link_text=link.text)
                 yield rule.process_request(r)
 
-    def _response_downloaded(self, response, callback, cb_kwargs, follow):
+    def _response_downloaded(self, response):
+        rule = self._rules[response.meta['rule']]
+        return self._parse_response(response, rule.callback, rule.cb_kwargs, rule.follow)
+
+    def _parse_response(self, response, callback, cb_kwargs, follow=True):
         if callback:
             cb_res = callback(response, **cb_kwargs) or ()
             cb_res = self.process_results(response, cb_res)
             for requests_or_item in iterate_spider_output(cb_res):
                 yield requests_or_item
 
-        if follow and settings.getbool('CRAWLSPIDER_FOLLOW_LINKS', True):
+        if follow and self._follow_links:
             for request_or_item in self._requests_to_follow(response):
                 yield request_or_item
-                
 
     def _compile_rules(self):
         def get_method(method):
@@ -84,3 +85,7 @@ class CrawlSpider(InitSpider):
             rule.callback = get_method(rule.callback)
             rule.process_links = get_method(rule.process_links)
             rule.process_request = get_method(rule.process_request)
+
+    def set_crawler(self, crawler):
+        super(CrawlSpider, self).set_crawler(crawler)
+        self._follow_links = crawler.settings.getbool('CRAWLSPIDER_FOLLOW_LINKS', True)

@@ -20,24 +20,32 @@ About HTTP errors to consider:
 
 from twisted.internet.error import TimeoutError as ServerTimeoutError, DNSLookupError, \
                                    ConnectionRefusedError, ConnectionDone, ConnectError, \
-                                   ConnectionLost
+                                   ConnectionLost, TCPTimedOutError
 from twisted.internet.defer import TimeoutError as UserTimeoutError
-from twisted.web.client import PartialDownloadError
 
 from scrapy import log
+from scrapy.exceptions import NotConfigured
 from scrapy.utils.response import response_status_message
-from scrapy.conf import settings
 
 class RetryMiddleware(object):
 
+    # IOError is raised by the HttpCompression middleware when trying to
+    # decompress an empty response
     EXCEPTIONS_TO_RETRY = (ServerTimeoutError, UserTimeoutError, DNSLookupError,
                            ConnectionRefusedError, ConnectionDone, ConnectError,
-                           ConnectionLost, PartialDownloadError)
+                           ConnectionLost, TCPTimedOutError,
+                           IOError)
 
-    def __init__(self):
+    def __init__(self, settings):
+        if not settings.getbool('RETRY_ENABLED'):
+            raise NotConfigured
         self.max_retry_times = settings.getint('RETRY_TIMES')
-        self.retry_http_codes = map(int, settings.getlist('RETRY_HTTP_CODES'))
+        self.retry_http_codes = set(int(x) for x in settings.getlist('RETRY_HTTP_CODES'))
         self.priority_adjust = settings.getint('RETRY_PRIORITY_ADJUST')
+
+    @classmethod
+    def from_crawler(cls, crawler):
+        return cls(crawler.settings)
 
     def process_response(self, request, response, spider):
         if 'dont_retry' in request.meta:
@@ -56,14 +64,13 @@ class RetryMiddleware(object):
         retries = request.meta.get('retry_times', 0) + 1
 
         if retries <= self.max_retry_times:
-            log.msg("Retrying %s (failed %d times): %s" % (request, retries, reason),
-                    spider=spider, level=log.DEBUG)
+            log.msg(format="Retrying %(request)s (failed %(retries)d times): %(reason)s",
+                    level=log.DEBUG, spider=spider, request=request, retries=retries, reason=reason)
             retryreq = request.copy()
             retryreq.meta['retry_times'] = retries
             retryreq.dont_filter = True
             retryreq.priority = request.priority + self.priority_adjust
             return retryreq
         else:
-            log.msg("Discarding %s (failed %d times): %s" % (request, retries, reason),
-                    spider=spider, level=log.DEBUG)
-
+            log.msg(format="Gave up retrying %(request)s (failed %(retries)d times): %(reason)s",
+                    level=log.DEBUG, spider=spider, request=request, retries=retries, reason=reason)

@@ -1,4 +1,4 @@
-import sys, os, glob
+import sys, os, glob, shutil
 from subprocess import check_call
 
 def build(suffix):
@@ -16,13 +16,17 @@ def build(suffix):
         with open(ifn, 'w') as of:
             of.write(s)
 
-    check_call('debchange -m -D unstable --force-distribution -v $(python setup.py --version)-r$(hg tip --template "{rev}")+$(date +%s) "Automatic build"', shell=True)
+    check_call('debchange -m -D unstable --force-distribution -v $(python setup.py --version)+$(date +%s) "Automatic build"', \
+        shell=True)
     check_call('debuild -us -uc -b', shell=True)
 
 def clean(suffix):
-    for f in glob.glob("debian/scrapy-%s.*" % suffix) + \
-            glob.glob("debian/scrapyd-%s.*" % suffix):
-        os.remove(f)
+    for f in glob.glob("debian/python-scrapy%s*" % suffix) + \
+            glob.glob("debian/scrapyd%s*" % suffix):
+        if os.path.isdir(f):
+            shutil.rmtree(f)
+        else:
+            os.remove(f)
 
 def main():
     cmd = sys.argv[1]

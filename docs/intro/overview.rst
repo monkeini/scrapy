@@ -43,7 +43,7 @@ done through :ref:`Scrapy Items <topics-items>` (Torrent files, in this case).
 
 This would be our Item::
 
-    from scrapy.item import Item
+    from scrapy.item import Item, Field
 
     class Torrent(Item):
         url = Field()
@@ -161,7 +161,7 @@ Run the spider to extract the data
 Finally, we'll run the spider to crawl the site an output file
 ``scraped_data.json`` with the scraped data in JSON format::
 
-    scrapy crawl mininova.org --set FEED_URI=scraped_data.json --set FEED_FORMAT=json
+    scrapy crawl mininova.org -o scraped_data.json -t json
 
 This uses :ref:`feed exports <topics-feed-exports>` to generate the JSON file.
 You can easily change the export format (XML or CSV, for example) or the
@@ -185,6 +185,8 @@ directly) are actually lists. This is because the :ref:`selectors
 <topics-selectors>` return lists. You may want to store single values, or
 perform some additional parsing/cleansing to the values. That's what
 :ref:`Item Loaders <topics-loaders>` are for.
+
+.. _topics-whatelse:
 
 What else?
 ==========
@@ -226,6 +228,10 @@ scraping easy and efficient, such as:
 * Robust encoding support and auto-detection, for dealing with foreign,
   non-standard and broken encoding declarations.
 
+* Support for creating spiders based on pre-defined templates, to speed up
+  spider creation and make their code more consistent on large projects. See
+  :command:`genspider` command for more details.
+
 * Extensible :ref:`stats collection <topics-stats>` for multiple spider
   metrics, useful for monitoring the performance of your spiders and detecting
   when they get broken
@@ -246,6 +252,10 @@ scraping easy and efficient, such as:
 * :ref:`Logging <topics-logging>` facility that you can hook on to for catching
   errors during the scraping process.
 
+* Support for crawling based on URLs discovered through `Sitemaps`_
+
+* A caching DNS resolver
+
 What's next?
 ============
 
@@ -262,3 +272,4 @@ interest!
 .. _XPath: http://www.w3.org/TR/xpath
 .. _XPath reference: http://www.w3.org/TR/xpath
 .. _Amazon S3: http://aws.amazon.com/s3/
+.. _Sitemaps: http://www.sitemaps.org

@@ -96,7 +96,7 @@ single Python class that defines one or more of the following methods:
    .. method:: process_response(request, response, spider)
 
       :meth:`process_response` should return a :class:`~scrapy.http.Response`
-      object or raise a :exc:`~scrapy.exceptions.IgnoreRequest` exception. 
+      object or raise a :exc:`~scrapy.exceptions.IgnoreRequest` exception.
 
       If it returns a :class:`~scrapy.http.Response` (it could be the same given
       response, or a brand-new one), that response will continue to be processed
@@ -114,13 +114,13 @@ single Python class that defines one or more of the following methods:
       :param spider: the spider for which this response is intended
       :type spider: :class:`~scrapy.spider.BaseSpider` object
 
-   .. method:: process_download_exception(request, exception, spider)
+   .. method:: process_exception(request, exception, spider)
 
-      Scrapy calls :meth:`process_download_exception` when a download handler
+      Scrapy calls :meth:`process_exception` when a download handler
       or a :meth:`process_request` (from a downloader middleware) raises an
       exception.
 
-      :meth:`process_download_exception` should return either ``None``,
+      :meth:`process_exception` should return either ``None``,
       :class:`~scrapy.http.Response` or :class:`~scrapy.http.Request` object.
 
       If it returns ``None``, Scrapy will continue processing this exception,
@@ -131,9 +131,9 @@ single Python class that defines one or more of the following methods:
       kicks in, and won't bother calling any other exception middleware.
 
       If it returns a :class:`~scrapy.http.Request` object, the returned request is
-      used to instruct an immediate redirection. 
+      used to instruct an immediate redirection.
       The original request won't finish until the redirected
-      request is completed. This stops the :meth:`process_download_exception`
+      request is completed. This stops the :meth:`process_exception`
       middleware the same as returning Response would do.
 
       :param request: the request that generated the exception
@@ -158,6 +158,8 @@ middleware, see the :ref:`downloader middleware usage guide
 For a list of the components enabled by default (and their orders) see the
 :setting:`DOWNLOADER_MIDDLEWARES_BASE` setting.
 
+.. _cookies-mw:
+
 CookiesMiddleware
 -----------------
 
@@ -166,8 +168,75 @@ CookiesMiddleware
 
 .. class:: CookiesMiddleware
 
-   This middleware enables working with sites that need cookies.
-   
+   This middleware enables working with sites that require cookies, such as
+   those that use sessions. It keeps track of cookies sent by web servers, and
+   send them back on subsequent requests (from that spider), just like web
+   browsers do.
+
+The following settings can be used to configure the cookie middleware:
+
+* :setting:`COOKIES_ENABLED`
+* :setting:`COOKIES_DEBUG`
+
+.. reqmeta:: cookiejar
+
+Multiple cookie sessions per spider
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. versionadded:: 0.15
+
+There is support for keeping multiple cookie sessions per spider by using the
+:reqmeta:`cookiejar` Request meta key. By default it uses a single cookie jar
+(session), but you can pass an identifier to use different ones.
+
+For example::
+
+    for i, url in enumerate(urls):
+        yield Request("http://www.example.com", meta={'cookiejar': i},
+            callback=self.parse_page)
+
+Keep in mind that the :reqmeta:`cookiejar` meta key is not "sticky". You need to keep
+passing it along on subsequent requests. For example::
+
+    def parse_page(self, response):
+        # do some processing
+        return Request("http://www.example.com/otherpage",
+            meta={'cookiejar': response.meta['cookiejar']},
+            callback=self.parse_other_page)
+
+.. setting:: COOKIES_ENABLED
+
+COOKIES_ENABLED
+~~~~~~~~~~~~~~~
+
+Default: ``True``
+
+Whether to enable the cookies middleware. If disabled, no cookies will be sent
+to web servers.
+
+.. setting:: COOKIES_DEBUG
+
+COOKIES_DEBUG
+~~~~~~~~~~~~~
+
+Default: ``False``
+
+If enabled, Scrapy will log all cookies sent in requests (ie. ``Cookie``
+header) and all cookies received in responses (ie. ``Set-Cookie`` header).
+
+Here's an example of a log with :setting:`COOKIES_DEBUG` enabled::
+
+    2011-04-06 14:35:10-0300 [diningcity] INFO: Spider opened
+    2011-04-06 14:35:10-0300 [diningcity] DEBUG: Sending cookies to: <GET http://www.diningcity.com/netherlands/index.html>
+            Cookie: clientlanguage_nl=en_EN
+    2011-04-06 14:35:14-0300 [diningcity] DEBUG: Received cookies from: <200 http://www.diningcity.com/netherlands/index.html>
+            Set-Cookie: JSESSIONID=B~FA4DC0C496C8762AE4F1A620EAB34F38; Path=/
+            Set-Cookie: ip_isocode=US
+            Set-Cookie: clientlanguage_nl=en_EN; Expires=Thu, 07-Apr-2011 21:21:34 GMT; Path=/
+    2011-04-06 14:49:50-0300 [diningcity] DEBUG: Crawled (200) <GET http://www.diningcity.com/netherlands/index.html> (referer: None)
+    [...]
+
+
 DefaultHeadersMiddleware
 ------------------------
 
@@ -187,7 +256,7 @@ DownloadTimeoutMiddleware
 
 .. class:: DownloadTimeoutMiddleware
 
-    This middleware sets the download timeout for requests specified in the 
+    This middleware sets the download timeout for requests specified in the
     :setting:`DOWNLOAD_TIMEOUT` setting.
 
 HttpAuthMiddleware
@@ -233,10 +302,36 @@ HttpCacheMiddleware
     downloads every time) and for trying your spider offline, when an Internet
     connection is not available.
 
-File system storage
+    Scrapy ships with two storage backends for the HTTP cache middleware:
+
+    * :ref:`httpcache-dbm-backend`
+    * :ref:`httpcache-fs-backend`
+
+    You can change the storage backend with the :setting:`HTTPCACHE_STORAGE`
+    setting. Or you can also implement your own backend.
+
+.. _httpcache-dbm-backend:
+
+DBM storage backend (default)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. versionadded:: 0.13
+
+A DBM_ storage backend is available for the HTTP cache middleware. To use it
+(note: it is the default storage backend) set :setting:`HTTPCACHE_STORAGE`
+to ``scrapy.contrib.httpcache.DbmCacheStorage``.
+
+By default, it uses the anydbm_ module, but you can change it with the
+:setting:`HTTPCACHE_DBM_MODULE` setting.
+
+.. _httpcache-fs-backend:
+
+File system backend
 ~~~~~~~~~~~~~~~~~~~
 
-By default, the :class:`HttpCacheMiddleware` uses a file system storage  with the following structure:
+A file system storage backend is also available for the HTTP cache middleware.
+To use it (instead of the default DBM_ storage backend) set :setting:`HTTPCACHE_STORAGE`
+to ``scrapy.contrib.downloadermiddleware.httpcache.FilesystemCacheStorage``.
 
 Each request/response pair is stored in a different directory containing
 the following files:
@@ -257,11 +352,8 @@ inefficient in many file systems). An example directory could be::
 
    /path/to/cache/dir/example.com/72/72811f648e718090f041317756c03adb0ada46c7
 
-The cache storage backend can be changed with the :setting:`HTTPCACHE_STORAGE`
-setting, but no other backend is provided with Scrapy yet.
-
-Settings
-~~~~~~~~
+HTTPCache middleware settings
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 The :class:`HttpCacheMiddleware` can be configured through the following
 settings:
@@ -324,7 +416,7 @@ HTTPCACHE_IGNORE_MISSING
 
 Default: ``False``
 
-If enabled, requests not found in the cache will be ignored instead of downloaded. 
+If enabled, requests not found in the cache will be ignored instead of downloaded.
 
 .. setting:: HTTPCACHE_IGNORE_SCHEMES
 
@@ -342,9 +434,21 @@ Don't cache responses with these URI schemes.
 HTTPCACHE_STORAGE
 ^^^^^^^^^^^^^^^^^
 
-Default: ``'scrapy.contrib.downloadermiddleware.httpcache.FilesystemCacheStorage'``
+Default: ``'scrapy.contrib.httpcache.DbmCacheStorage'``
 
 The class which implements the cache storage backend.
+
+.. setting:: HTTPCACHE_DBM_MODULE
+
+HTTPCACHE_DBM_MODULE
+^^^^^^^^^^^^^^^^^^^^
+
+.. versionadded:: 0.13
+
+Default: ``'anydbm'``
+
+The database module to use in the :ref:`DBM storage backend
+<httpcache-dbm-backend>`. This setting is specific to the DBM backend.
 
 
 HttpCompressionMiddleware
@@ -353,10 +457,20 @@ HttpCompressionMiddleware
 .. module:: scrapy.contrib.downloadermiddleware.httpcompression
    :synopsis: Http Compression Middleware
 
-.. class:: HttpCompressionMiddleware 
+.. class:: HttpCompressionMiddleware
 
    This middleware allows compressed (gzip, deflate) traffic to be
    sent/received from web sites.
+
+ChunkedTransferMiddleware
+-------------------------
+
+.. module:: scrapy.contrib.downloadermiddleware.chunked
+   :synopsis: Chunked Transfer Middleware
+
+.. class:: ChunkedTransferMiddleware
+
+   This middleware adds support for `chunked transfer encoding`_
 
 HttpProxyMiddleware
 -------------------
@@ -400,14 +514,47 @@ in the ``redirect_urls`` :attr:`Request.meta <scrapy.http.Request.meta>` key.
 The :class:`RedirectMiddleware` can be configured through the following
 settings (see the settings documentation for more info):
 
-* :setting:`REDIRECT_MAX_METAREFRESH_DELAY` - Maximum meta-refresh delay that a page is allowed to have for redirection.
-* :setting:`REDIRECT_MAX_TIMES` - Maximum number of redirects to perform on a request.
-* :setting:`REDIRECT_PRIORITY_ADJUST` - Adjusts the redirected request priority by this amount.
+* :setting:`REDIRECT_ENABLED`
+* :setting:`REDIRECT_MAX_TIMES`
+* :setting:`REDIRECT_MAX_METAREFRESH_DELAY`
 
 .. reqmeta:: dont_redirect
 
 If :attr:`Request.meta <scrapy.http.Request.meta>` contains the
 ``dont_redirect`` key, the request will be ignored by this middleware.
+
+
+RedirectMiddleware settings
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. setting:: REDIRECT_ENABLED
+
+REDIRECT_ENABLED
+^^^^^^^^^^^^^^^^
+
+.. versionadded:: 0.13
+
+Default: ``True``
+
+Whether the Redirect middleware will be enabled.
+
+.. setting:: REDIRECT_MAX_TIMES
+
+REDIRECT_MAX_TIMES
+^^^^^^^^^^^^^^^^^^
+
+Default: ``20``
+
+The maximum number of redirections that will be follow for a single request.
+
+.. setting:: REDIRECT_MAX_METAREFRESH_DELAY
+
+REDIRECT_MAX_METAREFRESH_DELAY
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Default: ``100``
+
+The maximum meta-refresh delay (in seconds) to follow the redirection.
 
 RetryMiddleware
 ---------------
@@ -428,12 +575,13 @@ Once there are no more failed pages to retry, this middleware sends a signal
 The :class:`RetryMiddleware` can be configured through the following
 settings (see the settings documentation for more info):
 
-* :setting:`RETRY_TIMES` - how many times to retry a failed page
-* :setting:`RETRY_HTTP_CODES` - which HTTP response codes to retry
+* :setting:`RETRY_ENABLED`
+* :setting:`RETRY_TIMES`
+* :setting:`RETRY_HTTP_CODES`
 
 About HTTP errors to consider:
 
-You may want to remove 400 from RETRY_HTTP_CODES, if you stick to the
+You may want to remove 400 from :setting:`RETRY_HTTP_CODES`, if you stick to the
 HTTP protocol. It's included by default because it's a common code used
 to indicate server overload, which would be something we want to retry.
 
@@ -441,6 +589,39 @@ to indicate server overload, which would be something we want to retry.
 
 If :attr:`Request.meta <scrapy.http.Request.meta>` contains the ``dont_retry``
 key, the request will be ignored by this middleware.
+
+RetryMiddleware Settings
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. setting:: RETRY_ENABLED
+
+RETRY_ENABLED
+^^^^^^^^^^^^^
+
+.. versionadded:: 0.13
+
+Default: ``True``
+
+Whether the Retry middleware will be enabled.
+
+.. setting:: RETRY_TIMES
+
+RETRY_TIMES
+^^^^^^^^^^^
+
+Default: ``2``
+
+Maximum number of times to retry, in addition to the first download.
+
+.. setting:: RETRY_HTTP_CODES
+
+RETRY_HTTP_CODES
+^^^^^^^^^^^^^^^^
+
+Default: ``[500, 503, 504, 400, 408]``
+
+Which HTTP response codes to retry. Other errors (DNS lookup issues,
+connections lost, etc) are always retried.
 
 .. _topics-dlmw-robots:
 
@@ -487,7 +668,11 @@ UserAgentMiddleware
 .. class:: UserAgentMiddleware
 
    Middleware that allows spiders to override the default user agent.
-   
+
    In order for a spider to override the default user agent, its `user_agent`
    attribute must be set.
 
+
+.. _DBM: http://en.wikipedia.org/wiki/Dbm
+.. _anydbm: http://docs.python.org/library/anydbm.html
+.. _chunked transfer encoding: http://en.wikipedia.org/wiki/Chunked_transfer_encoding

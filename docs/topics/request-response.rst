@@ -24,7 +24,7 @@ below in :ref:`topics-request-response-ref-request-subclasses` and
 Request objects
 ===============
 
-.. class:: Request(url[, method='GET', body, headers, cookies, meta, encoding='utf-8', priority=0.0, dont_filter=False, callback, errback])
+.. class:: Request(url[, method='GET', body, headers, cookies, meta, encoding='utf-8', priority=0, dont_filter=False, callback, errback])
 
     A :class:`Request` object represents an HTTP request, which is usually
     generated in the Spider and executed by the Downloader, and thus generating
@@ -51,10 +51,23 @@ Request objects
        (for single valued headers) or lists (for multi-valued headers).
     :type headers: dict
 
-    :param cookies: the request cookies. Example::
+    :param cookies: the request cookies. These can be sent in two forms.
+
+        1. Using a dict::
 
             request_with_cookies = Request(url="http://www.example.com",
-                                           cookies={currency: 'USD', country: 'UY'})
+                                           cookies={'currency': 'USD', 'country': 'UY'})
+        2. Using a list of dicts::
+
+            request_with_cookies = Request(url="http://www.example.com",
+                                           cookies=[{'name': 'currency',
+                                                    'value': 'USD',
+                                                    'domain': 'example.com',
+                                                    'path': '/currency'}])
+
+        The latter form allows for customizing the ``domain`` and ``path``
+        attributes of the cookie. These is only useful if the cookies are saved
+        for later requests.
 
         When some site returns cookies (in a response) those are stored in the
         cookies for that domain and will be sent again in future requests. That's
@@ -66,20 +79,21 @@ Request objects
         Example of request without merging cookies::
 
             request_with_cookies = Request(url="http://www.example.com",
-                                           cookies={currency: 'USD', country: 'UY'},
+                                           cookies={'currency': 'USD', 'country': 'UY'},
                                            meta={'dont_merge_cookies': True})
-    :type cookies: dict
+
+        For more info see :ref:`cookies-mw`.
+    :type cookies: dict or list
 
     :param encoding: the encoding of this request (defaults to ``'utf-8'``).
        This encoding will be used to percent-encode the URL and to convert the
        body to ``str`` (if given as ``unicode``).
     :type encoding: string
 
-    :param priority: the priority of this request (defaults to ``0.0``).
-       The priority is used by the scheduler to define the order used to return
-       requests. It can also be used to feed priorities externally, for
-       example, using an offline long-term scheduler.
-    :type encoding: int or float
+    :param priority: the priority of this request (defaults to ``0``).
+       The priority is used by the scheduler to define the order used to process
+       requests.
+    :type priority: int
 
     :param dont_filter: indicates that this request should not be filtered by
        the scheduler. This is used when you want to perform an identical
@@ -148,7 +162,7 @@ Request objects
        Return a new Request which is a copy of this Request. See also:
        :ref:`topics-request-response-ref-request-callback-arguments`.
 
-    .. method:: Request.replace([url, callback, method, headers, body, cookies, meta, encoding, dont_filter, callback, errback])
+    .. method:: Request.replace([url, method, headers, body, cookies, meta, encoding, dont_filter, callback, errback])
 
        Return a Request object with the same members, except for those members
        given new values by whichever keyword arguments are specified. The
@@ -158,17 +172,17 @@ Request objects
 
 .. _topics-request-response-ref-request-callback-arguments:
 
-Passing arguments to callback functions
----------------------------------------
+Passing additional data to callback functions
+---------------------------------------------
 
 The callback of a request is a function that will be called when the response
 of that request is downloaded. The callback function will be called with the
-:class:`Response` object downloaded as its first argument. 
+downloaded :class:`Response` object as its first argument. 
 
 Example::
 
     def parse_page1(self, response):
-        request = Request("http://www.example.com/some_page.html", 
+        return Request("http://www.example.com/some_page.html", 
                           callback=self.parse_page2)
 
     def parse_page2(self, response):
@@ -176,37 +190,24 @@ Example::
         self.log("Visited %s" % response.url) 
 
 In some cases you may be interested in passing arguments to those callback
-functions so you can receive those arguments later, when the response is
-downloaded. There are two ways for doing this:
+functions so you can receive the arguments later, in the second callback. You
+can use the :attr:`Request.meta` attribute for that.
 
-    1. using a lambda function (or any other function/callable)
-    
-    2. using the :attr:`Request.meta` attribute.
-    
-Here's an example of logging the referer URL of each page using each mechanism.
-Keep in mind, however, that the referer URL could be accessed easier via
-``response.request.url``).
-
-Using lambda function::
+Here's an example of how to pass an item using this mechanism, to populate
+different fields from different pages::
 
     def parse_page1(self, response):
-        myarg = response.url
-        request = Request("http://www.example.com/some_page.html", 
-                          callback=lambda r: self.parse_page2(r, myarg))
-
-    def parse_page2(self, response, referer_url):
-        self.log("Visited page %s from %s" % (response.url, referer_url))
-
-Using Request.meta::
-
-    def parse_page1(self, response):
+        item = MyItem()
+        item['main_url'] = response.url
         request = Request("http://www.example.com/some_page.html", 
                           callback=self.parse_page2)
-        request.meta['referer_url'] = response.url
+        request.meta['item'] = item
+        return request
 
     def parse_page2(self, response):
-        referer_url = response.request.meta['referer_url']
-        self.log("Visited page %s from %s" % (response.url, referer_url))
+        item = response.meta['item']
+        item['other_url'] = response.url
+        return item
 
 .. _topics-request-meta:
 
@@ -222,6 +223,7 @@ Those are:
 * :reqmeta:`dont_retry`
 * :reqmeta:`handle_httpstatus_list`
 * ``dont_merge_cookies`` (see ``cookies`` parameter of :class:`Request` constructor)
+* :reqmeta:`cookiejar`
 * :reqmeta:`redirect_urls`
 
 .. _topics-request-response-ref-request-subclasses:
@@ -236,11 +238,10 @@ FormRequest objects
 -------------------
 
 The FormRequest class extends the base :class:`Request` with functionality for
-dealing with HTML forms. It uses the `ClientForm`_ library (bundled with
-Scrapy) to pre-populate form fields with form data from :class:`Response`
-objects.
+dealing with HTML forms. It uses `lxml.html forms`_  to pre-populate form
+fields with form data from :class:`Response` objects.
 
-.. _ClientForm: http://wwwsearch.sourceforge.net/ClientForm/
+.. _lxml.html forms: http://lxml.de/lxmlhtml.html#forms
 
 .. class:: FormRequest(url, [formdata, ...])
 
@@ -256,24 +257,23 @@ objects.
     The :class:`FormRequest` objects support the following class method in
     addition to the standard :class:`Request` methods:
 
-    .. classmethod:: FormRequest.from_response(response, [formname=None, formnumber=0, formdata=None, clickdata=None, dont_click=False, ...])
+    .. classmethod:: FormRequest.from_response(response, [formname=None, formnumber=0, formdata=None, dont_click=False, ...])
 
        Returns a new :class:`FormRequest` object with its form field values
        pre-populated with those found in the HTML ``<form>`` element contained
        in the given response. For an example see
        :ref:`topics-request-response-ref-request-userlogin`.
 
-       Keep in mind that this method is implemented using `ClientForm`_ whose
-       policy is to automatically simulate a click, by default, on any form
+       The policy is to automatically simulate a click, by default, on any form
        control that looks clickable, like a ``<input type="submit">``.  Even
        though this is quite convenient, and often the desired behaviour,
        sometimes it can cause problems which could be hard to debug. For
        example, when working with forms that are filled and/or submitted using
-       javascript, the default :meth:`from_response` (and `ClientForm`_)
-       behaviour may not be the most appropiate. To disable this behaviour you
-       can set the ``dont_click`` argument to ``True``. Also, if you want to
-       change the control clicked (instead of disabling it) you can also use
-       the ``clickdata`` argument.
+       javascript, the default :meth:`from_response` behaviour may not be the
+       most appropiate. To disable this behaviour you can set the
+       ``dont_click`` argument to ``True``. Also, if you want to change the
+       control clicked (instead of disabling it) you can also use the
+       ``clickdata`` argument.
 
        :param response: the response containing a HTML form which will be used
           to pre-populate the form fields
@@ -292,11 +292,6 @@ objects.
           already present in the response ``<form>`` element, its value is
           overridden by the one passed in this parameter.
        :type formdata: dict
-
-       :param clickdata: Arguments to be passed directly to the ClientForm
-          ``click_request_data()`` method. See `ClientForm`_ homepage for
-          more info.
-       :type clickdata: dict
 
        :param dont_click: If True, the form data will be sumbitted without
          clicking in any element.

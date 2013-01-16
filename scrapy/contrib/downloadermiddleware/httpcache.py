@@ -1,34 +1,37 @@
-from __future__ import with_statement
-
 import os
 from os.path import join, exists
 from time import time
 import cPickle as pickle
 
-from scrapy.xlib.pydispatch import dispatcher
+from w3lib.http import headers_dict_to_raw, headers_raw_to_dict
+
 from scrapy import signals
 from scrapy.http import Headers
 from scrapy.exceptions import NotConfigured, IgnoreRequest
-from scrapy.core.downloader.responsetypes import responsetypes
+from scrapy.responsetypes import responsetypes
 from scrapy.utils.request import request_fingerprint
-from scrapy.utils.http import headers_dict_to_raw, headers_raw_to_dict
 from scrapy.utils.httpobj import urlparse_cached
 from scrapy.utils.misc import load_object
 from scrapy.utils.project import data_path
-from scrapy import conf
 
 
 class HttpCacheMiddleware(object):
 
-    def __init__(self, settings=conf.settings):
+    def __init__(self, settings, stats):
         if not settings.getbool('HTTPCACHE_ENABLED'):
             raise NotConfigured
         self.storage = load_object(settings['HTTPCACHE_STORAGE'])(settings)
         self.ignore_missing = settings.getbool('HTTPCACHE_IGNORE_MISSING')
         self.ignore_schemes = settings.getlist('HTTPCACHE_IGNORE_SCHEMES')
         self.ignore_http_codes = map(int, settings.getlist('HTTPCACHE_IGNORE_HTTP_CODES'))
-        dispatcher.connect(self.spider_opened, signal=signals.spider_opened)
-        dispatcher.connect(self.spider_closed, signal=signals.spider_closed)
+        self.stats = stats
+
+    @classmethod
+    def from_crawler(cls, crawler):
+        o = cls(crawler.settings, crawler.stats)
+        crawler.signals.connect(o.spider_opened, signal=signals.spider_opened)
+        crawler.signals.connect(o.spider_closed, signal=signals.spider_closed)
+        return o
 
     def spider_opened(self, spider):
         self.storage.open_spider(spider)
@@ -42,13 +45,19 @@ class HttpCacheMiddleware(object):
         response = self.storage.retrieve_response(spider, request)
         if response and self.is_cacheable_response(response):
             response.flags.append('cached')
+            self.stats.inc_value('httpcache/hits', spider=spider)
             return response
-        elif self.ignore_missing:
+
+        self.stats.inc_value('httpcache/misses', spider=spider)
+        if self.ignore_missing:
             raise IgnoreRequest("Ignored request not in cache: %s" % request)
 
     def process_response(self, request, response, spider):
-        if self.is_cacheable(request) and self.is_cacheable_response(response):
+        if (self.is_cacheable(request)
+            and self.is_cacheable_response(response)
+            and 'cached' not in response.flags):
             self.storage.store_response(spider, request, response)
+            self.stats.inc_value('httpcache/store', spider=spider)
         return response
 
     def is_cacheable_response(self, response):
@@ -60,7 +69,7 @@ class HttpCacheMiddleware(object):
 
 class FilesystemCacheStorage(object):
 
-    def __init__(self, settings=conf.settings):
+    def __init__(self, settings):
         self.cachedir = data_path(settings['HTTPCACHE_DIR'])
         self.expiration_secs = settings.getint('HTTPCACHE_EXPIRATION_SECS')
 
@@ -80,8 +89,7 @@ class FilesystemCacheStorage(object):
             body = f.read()
         with open(join(rpath, 'response_headers'), 'rb') as f:
             rawheaders = f.read()
-        # We failback to metadata['url'] to support old generated caches. TODO: remove for Scrapy 0.11
-        url = metadata.get('response_url') or metadata['url']
+        url = metadata.get('response_url')
         status = metadata['status']
         headers = Headers(headers_raw_to_dict(rawheaders))
         respcls = responsetypes.from_args(headers=headers, url=url)

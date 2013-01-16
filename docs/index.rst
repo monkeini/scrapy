@@ -16,12 +16,12 @@ Having trouble? We'd like to help!
 * Search for information in the `archives of the scrapy-users mailing list`_, or
   `post a question`_.
 * Ask a question in the `#scrapy IRC channel`_.
-* Report bugs with Scrapy in our `ticket tracker`_.
+* Report bugs with Scrapy in our `issue tracker`_.
 
 .. _archives of the scrapy-users mailing list: http://groups.google.com/group/scrapy-users/
 .. _post a question: http://groups.google.com/group/scrapy-users/
 .. _#scrapy IRC channel: irc://irc.freenode.net/scrapy
-.. _ticket tracker: http://dev.scrapy.org/
+.. _issue tracker: https://github.com/scrapy/scrapy/issues
 
 
 First steps
@@ -33,6 +33,7 @@ First steps
    intro/overview
    intro/install
    intro/tutorial
+   intro/examples
 
 :doc:`intro/overview`
     Understand what Scrapy is and how it can help you.
@@ -43,9 +44,13 @@ First steps
 :doc:`intro/tutorial`
     Write your first Scrapy project.
 
+:doc:`intro/examples`
+    Learn more by playing with a pre-made Scrapy project.
 
-Scraping basics
-===============
+.. _section-basics:
+
+Basic concepts
+==============
 
 .. toctree::
    :hidden:
@@ -59,6 +64,7 @@ Scraping basics
    topics/shell
    topics/item-pipeline
    topics/feed-exports
+   topics/link-extractors
 
 :doc:`topics/commands`
     Learn about the command-line tool used to manage your Scrapy project.
@@ -70,7 +76,7 @@ Scraping basics
     Write the rules to crawl your websites.
 
 :doc:`topics/selectors`
-    Extract the data from web pages.
+    Extract the data from web pages using XPath.
 
 :doc:`topics/shell`
     Test your extraction code in an interactive environment.
@@ -84,6 +90,8 @@ Scraping basics
 :doc:`topics/feed-exports`
     Output your scraped data using different formats and storages.
 
+:doc:`topics/link-extractors`
+    Convenient classes to extract links to follow from pages.
 
 Built-in services
 =================
@@ -120,15 +128,34 @@ Solving specific problems
    :hidden:
 
    faq
+   topics/debug
+   topics/contracts
+   topics/practices
+   topics/broad-crawls
    topics/firefox
    topics/firebug
    topics/leaks
    topics/images
    topics/ubuntu
    topics/scrapyd
+   topics/autothrottle
+   topics/jobs
+   topics/djangoitem
 
 :doc:`faq`
     Get answers to most frequently asked questions.
+
+:doc:`topics/debug`
+    Learn how to debug common problems of your scrapy spider.
+
+:doc:`topics/contracts`
+    Learn how to use contracts for testing your spiders.
+
+:doc:`topics/practices`
+    Get familiar with some Scrapy common practices.
+
+:doc:`topics/broad-crawls`
+    Tune Scrapy for crawling a lot domains in parallel.
 
 :doc:`topics/firefox`
     Learn how to scrape with Firefox and some useful add-ons.
@@ -148,6 +175,15 @@ Solving specific problems
 :doc:`topics/scrapyd`
     Deploying your Scrapy project in production.
 
+:doc:`topics/autothrottle`
+    Adjust crawl rate dynamically based on load.
+
+:doc:`topics/jobs`
+    Learn how to pause and resume crawls for large spiders.
+
+:doc:`topics/djangoitem`
+    Write scraped items using Django models.
+
 .. _extending-scrapy:
 
 Extending Scrapy
@@ -160,6 +196,7 @@ Extending Scrapy
    topics/downloader-middleware
    topics/spider-middleware
    topics/extensions
+   topics/api
 
 :doc:`topics/architecture`
     Understand the Scrapy architecture.
@@ -171,9 +208,10 @@ Extending Scrapy
     Customize the input and output of your spiders.
 
 :doc:`topics/extensions`
-    Add any custom functionality using :doc:`signals <topics/signals>` and the
-    Scrapy API
+    Extend Scrapy with your custom functionality
 
+:doc:`topics/api`
+    Use it on extensions and middlewares to extend Scrapy functionality
 
 Reference
 =========
@@ -212,14 +250,18 @@ All the rest
 .. toctree::
    :hidden:
 
+   news
    contributing
-   api-stability
+   versioning
    experimental/index
+
+:doc:`news`
+    See what has changed in recent Scrapy versions.
 
 :doc:`contributing`
     Learn how to contribute to the Scrapy project.
 
-:doc:`api-stability`
+:doc:`versioning`
     Understand Scrapy versioning and API stability.
 
 :doc:`experimental/index`

@@ -1,11 +1,9 @@
+from w3lib.http import headers_dict_to_raw
 from scrapy.utils.datatypes import CaselessDict
-from scrapy.utils.http import headers_dict_to_raw
 
 
 class Headers(CaselessDict):
     """Case insensitive http headers dictionary"""
-
-    __slots__ = ['encoding']
 
     def __init__(self, seq=None, encoding='utf-8'):
         self.encoding = encoding
@@ -19,12 +17,10 @@ class Headers(CaselessDict):
 
     def normvalue(self, value):
         """Headers must not be unicode"""
-        if isinstance(value, unicode):
-            value = value.encode(self.encoding)
-
-        if isinstance(value, (list, tuple)):
-            return list(value)
-        return [value]
+        if not hasattr(value, '__iter__'):
+            value = [value]
+        return [x.encode(self.encoding) if isinstance(x, unicode) else x \
+            for x in value]
 
     def __getitem__(self, key):
         try:

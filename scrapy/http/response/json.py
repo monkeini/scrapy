@@ -4,12 +4,9 @@ discovering through XML encoding declarations to the TextResponse class.
 
 See documentation in docs/topics/request-response.rst
 """
-
-import re
-
 from scrapy.http.response.text import TextResponse
-from scrapy.utils.python import memoizemethod_noargs
 from scrapy.utils.py26 import json
+
 
 class JsonRpcError(Exception):
 
@@ -21,6 +18,7 @@ class JsonRpcError(Exception):
 
     def __str__(self):
         return "JSON-RPC error (code %d): %s" % (self.code, self.message)
+
 
 class JsonResponse(TextResponse):
 
@@ -38,6 +36,5 @@ class JsonResponse(TextResponse):
             msg = "JSON-RPC response must contain 'result' or 'error': %s" % res
             raise ValueError(msg)
 
-        
     def __str__(self):
         return "<%d JSON self.url: %s>" % (self.status, self.url, self.result)

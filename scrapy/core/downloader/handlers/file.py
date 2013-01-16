@@ -1,8 +1,11 @@
-from scrapy.core.downloader.responsetypes import responsetypes
-from scrapy.utils.url import file_uri_to_path
+from w3lib.url import file_uri_to_path
+from scrapy.responsetypes import responsetypes
 from scrapy.utils.decorator import defers
 
 class FileDownloadHandler(object):
+
+    def __init__(self, settings):
+        pass
 
     @defers
     def download_request(self, request, spider):

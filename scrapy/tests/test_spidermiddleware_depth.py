@@ -4,6 +4,7 @@ from scrapy.contrib.spidermiddleware.depth import DepthMiddleware
 from scrapy.http import Response, Request
 from scrapy.spider import BaseSpider
 from scrapy.statscol import StatsCollector
+from scrapy.utils.test import get_crawler
 
 
 class TestDepthMiddleware(TestCase):
@@ -11,11 +12,10 @@ class TestDepthMiddleware(TestCase):
     def setUp(self):
         self.spider = BaseSpider('scrapytest.org')
 
-        self.stats = StatsCollector()
+        self.stats = StatsCollector(get_crawler())
         self.stats.open_spider(self.spider)
 
-        self.mw = DepthMiddleware(1, self.stats)
-        self.assertEquals(self.stats.get_value('envinfo/request_depth_limit'), 1)
+        self.mw = DepthMiddleware(1, self.stats, True)
 
     def test_process_spider_output(self):
         req = Request('http://scrapytest.org')

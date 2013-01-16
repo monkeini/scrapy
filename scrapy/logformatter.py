@@ -1,3 +1,11 @@
+import os
+
+from twisted.python.failure import Failure
+
+
+SCRAPEDFMT = u"Scraped from %(src)s" + os.linesep + "%(item)s"
+DROPPEDFMT = u"Dropped: %(exception)s" + os.linesep + "%(item)s"
+CRAWLEDFMT = u"Crawled (%(status)s) %(request)s (referer: %(referer)s)%(flags)s"
 
 class LogFormatter(object):
     """Class for generating log messages for different actions. All methods
@@ -6,16 +14,30 @@ class LogFormatter(object):
     """
 
     def crawled(self, request, response, spider):
-        referer = request.headers.get('Referer')
         flags = ' %s' % str(response.flags) if response.flags else ''
-        return "Crawled (%d) %s (referer: %s)%s" % (response.status, \
-            request, referer, flags)
+        return {
+            'format': CRAWLEDFMT,
+            'status': response.status,
+            'request': request,
+            'referer': request.headers.get('Referer'),
+            'flags': flags,
+        }
 
-    def scraped(self, item, request, response, spider):
-        return "Scraped %s in <%s>" % (item, request.url)
+    def scraped(self, item, response, spider):
+        src = response.getErrorMessage() if isinstance(response, Failure) else response
+        return {
+            'format': SCRAPEDFMT,
+            'src': src,
+            'item': item,
+        }
 
-    def dropped(self, item, exception, spider):
-        return "Dropped %s - %s" % (item, unicode(exception))
+    def dropped(self, item, exception, response, spider):
+        return {
+            'format': DROPPEDFMT,
+            'exception': exception,
+            'item': item,
+        }
 
-    def passed(self, item, spider):
-        return "Passed %s" % item
+    @classmethod
+    def from_crawler(cls, crawler):
+        return cls()

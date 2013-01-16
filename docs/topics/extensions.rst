@@ -62,20 +62,16 @@ Not all available extensions will be enabled. Some of them usually depend on a
 particular setting. For example, the HTTP Cache extension is available by default
 but disabled unless the :setting:`HTTPCACHE_ENABLED` setting is set.
 
-Accessing enabled extensions
-============================
+Disabling an extension
+======================
 
-Even though it's not usually needed, you can access extension objects through
-the :ref:`topics-extensions-ref-manager` which is populated when extensions are
-loaded.  For example, to access the ``WebService`` extension::
+In order to disable an extension that comes enabled by default (ie. those
+included in the :setting:`EXTENSIONS_BASE` setting) you must set its order to
+``None``. For example::
 
-    from scrapy.project import extensions
-    webservice_extension = extensions.enabled['WebService']
-
-.. see also::
-
-    :ref:`topics-extensions-ref-manager`, for the complete Extension Manager
-    reference.
+    EXTENSIONS = {
+        'scrapy.contrib.corestats.CoreStats': None,
+    }
 
 Writing your own extension
 ==========================
@@ -83,92 +79,75 @@ Writing your own extension
 Writing your own extension is easy. Each extension is a single Python class
 which doesn't need to implement any particular method. 
 
-All extension initialization code must be performed in the class constructor
-(``__init__`` method). If that method raises the
+The main entry point for a Scrapy extension (this also includes middlewares and
+pipelines) is the ``from_crawler`` class method which receives a
+``Crawler`` instance which is the main object controlling the Scrapy crawler.
+Through that object you can access settings, signals, stats, and also control
+the crawler behaviour, if your extension needs to such thing.
+
+Typically, extensions connect to :ref:`signals <topics-signals>` and perform
+tasks triggered by them.
+
+Finally, if the ``from_crawler`` method raises the
 :exc:`~scrapy.exceptions.NotConfigured` exception, the extension will be
 disabled. Otherwise, the extension will be enabled.
 
-Let's take a look at the following example extension which just logs a message
-every time a domain/spider is opened and closed::
+Sample extension
+----------------
 
-    from scrapy.xlib.pydispatch import dispatcher
+Here we will implement a simple extension to illustrate the concepts described
+in the previous section. This extension will log a message every time:
+
+* a spider is opened
+* a spider is closed
+* a specific number of items are scraped
+
+The extension will be enabled through the ``MYEXT_ENABLED`` setting and the
+number of items will be specified through the ``MYEXT_ITEMCOUNT`` setting.
+
+Here is the code of such extension::
+
     from scrapy import signals
+    from scrapy.exceptions import NotConfigured
 
     class SpiderOpenCloseLogging(object):
 
-        def __init__(self):
-            dispatcher.connect(self.spider_opened, signal=signals.spider_opened)
-            dispatcher.connect(self.spider_closed, signal=signals.spider_closed)
+        def __init__(self, item_count):
+            self.item_count = item_count
+            self.items_scraped = 0
+
+        @classmethod
+        def from_crawler(cls, crawler):
+            # first check if the extension should be enabled and raise
+            # NotConfigured otherwise
+            if not crawler.settings.getbool('MYEXT_ENABLED'):
+                raise NotConfigured
+
+            # get the number of items from settings
+            item_count = crawler.settings.getint('MYEXT_ITEMCOUNT', 1000)
+
+            # instantiate the extension object
+            ext = cls(item_count)
+
+            # connect the extension object to signals
+            crawler.signals.connect(ext.spider_opened, signal=signals.spider_opened)
+            crawler.signals.connect(ext.spider_closed, signal=signals.spider_closed)
+            crawler.signals.connect(ext.item_scraped, signal=signals.item_scraped)
+
+            # return the extension object 
+            return ext
 
         def spider_opened(self, spider):
-            log.msg("opened spider %s" % spider.name)
+            spider.log("opened spider %s" % spider.name)
 
         def spider_closed(self, spider):
-            log.msg("closed spider %s" % spider.name)
+            spider.log("closed spider %s" % spider.name)
 
-
-.. _topics-extensions-ref-manager:
-
-Extension Manager
-=================
-
-.. module:: scrapy.extension
-   :synopsis: The extension manager
-
-The Extension Manager is responsible for loading and keeping track of installed
-extensions and it's configured through the :setting:`EXTENSIONS` setting which
-contains a dictionary of all available extensions and their order similar to
-how you :ref:`configure the downloader middlewares
-<topics-downloader-middleware-setting>`.
-
-.. class:: ExtensionManager
-
-    The Extension Manager is a singleton object, which is instantiated at module
-    loading time and can be accessed like this::
-
-        from scrapy.project import extensions
-
-    .. attribute:: loaded
-
-        A boolean which is True if extensions are already loaded or False if
-        they're not.
-
-    .. attribute:: enabled
-
-        A dict with the enabled extensions. The keys are the extension class names,
-        and the values are the extension objects. Example::
-
-            >>> from scrapy.project import extensions
-            >>> extensions.load()
-            >>> print extensions.enabled
-            {'CoreStats': <scrapy.contrib.corestats.CoreStats object at 0x9e272ac>,
-             'WebService': <scrapy.management.telnet.TelnetConsole instance at 0xa05670c>,
-            ...
-
-    .. attribute:: disabled
-
-        A dict with the disabled extensions. The keys are the extension class names,
-        and the values are the extension class paths (because objects are never
-        instantiated for disabled extensions). Example::
-
-            >>> from scrapy.project import extensions
-            >>> extensions.load()
-            >>> print extensions.disabled
-            {'MemoryDebugger': 'scrapy.contrib.memdebug.MemoryDebugger',
-             'MyExtension': 'myproject.extensions.MyExtension',
-            ...
-
-    .. method:: load()
-
-        Load the available extensions configured in the :setting:`EXTENSIONS`
-        setting. On a standard run, this method is usually called by the Execution
-        Manager, but you may need to call it explicitly if you're dealing with
-        code outside Scrapy.
-
-    .. method:: reload()
-
-        Reload the available extensions. See :meth:`load`.
-
+        def item_scraped(self, item, spider):
+            self.items_scraped += 1
+            if self.items_scraped == self.item_count:
+                spider.log("scraped %d items, resetting counter" % self.items_scraped)
+                self.item_count = 0
 
 .. _topics-extensions-ref:
 
@@ -178,10 +157,20 @@ Built-in extensions reference
 General purpose extensions
 --------------------------
 
+Log Stats extension
+~~~~~~~~~~~~~~~~~~~
+
+.. module:: scrapy.contrib.logstats
+   :synopsis: Basic stats logging
+
+.. class:: LogStats
+
+Log basic stats like crawled pages and scraped items.
+
 Core Stats extension
 ~~~~~~~~~~~~~~~~~~~~
 
-.. module:: scrapy.contrib.corestats.corestats
+.. module:: scrapy.contrib.corestats
    :synopsis: Core stats collection
 
 .. class:: CoreStats
@@ -230,15 +219,15 @@ Memory usage extension
 
 .. note:: This extension does not work in Windows.
 
-Allows monitoring the memory used by a Scrapy process and:
+Monitors the memory used by the Scrapy process that runs the spider and:
 
-1, send a notification e-mail when it exceeds a certain value
-2. terminate the Scrapy process when it exceeds a certain value 
+1, sends a notification e-mail when it exceeds a certain value
+2. closes the spider when it exceeds a certain value
 
 The notification e-mails can be triggered when a certain warning value is
 reached (:setting:`MEMUSAGE_WARNING_MB`) and when the maximum value is reached
-(:setting:`MEMUSAGE_LIMIT_MB`) which will also cause the Scrapy process to be
-terminated.
+(:setting:`MEMUSAGE_LIMIT_MB`) which will also cause the spider to be closed
+and the Scrapy process to be terminated.
 
 This extension is enabled by the :setting:`MEMUSAGE_ENABLED` setting and
 can be configured with the following settings:
@@ -256,11 +245,14 @@ Memory debugger extension
 
 .. class:: scrapy.contrib.memdebug.MemoryDebugger
 
-A memory debugger which collects some info about objects uncollected by the
-garbage collector and libxml2 memory leaks. To enable this extension, turn on
-the :setting:`MEMDEBUG_ENABLED` setting. The report will be printed to standard
-output. If the :setting:`MEMDEBUG_NOTIFY` setting contains a list of e-mails the
-report will also be sent to those addresses.
+An extension for debugging memory usage. It collects information about:
+
+* objects uncollected by the Python garbage collector
+* libxml2 memory leaks
+* objects left alive that shouldn't. For more info, see :ref:`topics-leaks-trackrefs`
+
+To enable this extension, turn on the :setting:`MEMDEBUG_ENABLED` setting. The
+info will be stored in the stats.
 
 Close spider extension
 ~~~~~~~~~~~~~~~~~~~~~~
@@ -277,7 +269,7 @@ The conditions for closing a spider can be configured through the following
 settings:
 
 * :setting:`CLOSESPIDER_TIMEOUT`
-* :setting:`CLOSESPIDER_ITEMPASSED`
+* :setting:`CLOSESPIDER_ITEMCOUNT`
 * :setting:`CLOSESPIDER_PAGECOUNT`
 * :setting:`CLOSESPIDER_ERRORCOUNT`
 
@@ -293,16 +285,16 @@ more than that number of second, it will be automatically closed with the
 reason ``closespider_timeout``. If zero (or non set), spiders won't be closed by
 timeout.
 
-.. setting:: CLOSESPIDER_ITEMPASSED
+.. setting:: CLOSESPIDER_ITEMCOUNT
 
-CLOSESPIDER_ITEMPASSED
-""""""""""""""""""""""
+CLOSESPIDER_ITEMCOUNT
+"""""""""""""""""""""
 
 Default: ``0``
 
 An integer which specifies a number of items. If the spider scrapes more than
 that amount if items and those items are passed by the item pipeline, the
-spider will be closed with the reason ``closespider_itempassed``. If zero (or
+spider will be closed with the reason ``closespider_itemcount``. If zero (or
 non set), spiders won't be closed by number of passed items.
 
 .. setting:: CLOSESPIDER_PAGECOUNT
@@ -357,15 +349,29 @@ Stack trace dump extension
 
 .. class:: scrapy.contrib.debug.StackTraceDump
 
-Dumps the stack trace of a runnning Scrapy process when a `SIGUSR2`_ signal is
-received. After the stack trace is dumped, the Scrapy process continues running
-normally.
+Dumps information about the running process when a `SIGQUIT`_ or `SIGUSR2`_
+signal is received. The information dumped is the following:
 
-The stack trace is sent to standard output.
+1. engine status (using ``scrapy.utils.engine.get_engine_status()``)
+2. live references (see :ref:`topics-leaks-trackrefs`)
+3. stack trace of all threads
 
-This extension only works on POSIX-compliant platforms (ie. not Windows).
+After the stack trace and engine status is dumped, the Scrapy process continues
+running normally.
+
+This extension only works on POSIX-compliant platforms (ie. not Windows),
+because the `SIGQUIT`_ and `SIGUSR2`_ signals are not available on Windows.
+
+There are at least two ways to send Scrapy the `SIGQUIT`_ signal:
+
+1. By pressing Ctrl-\ while a Scrapy process is running (Linux only?)
+2. By running this command (assuming ``<pid>`` is the process id of the Scrapy
+   process)::
+
+    kill -QUIT <pid>
 
 .. _SIGUSR2: http://en.wikipedia.org/wiki/SIGUSR1_and_SIGUSR2
+.. _SIGQUIT: http://en.wikipedia.org/wiki/SIGQUIT
 
 Debugger extension
 ~~~~~~~~~~~~~~~~~~

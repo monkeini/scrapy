@@ -35,14 +35,16 @@ vsftpd_log_file=/dev/null
     vsftpd_pid=$!
 fi
 
-find -name '*.py[co]' -delete
+find . -name '*.py[co]' -delete
 if [ $# -eq 0 ]; then
     $trial --reporter=text scrapy scrapyd
 else
     $trial "$@"
 fi
+exit_status=$?
 
 # cleanup vsftpd stuff
 [ -n "$vsftpd_pid" ] && kill $vsftpd_pid
 [ -n "$ftproot" ] && rm -rf $ftproot $vsftpd_conf
 
+exit $exit_status

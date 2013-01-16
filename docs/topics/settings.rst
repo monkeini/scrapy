@@ -4,9 +4,6 @@
 Settings
 ========
 
-.. module:: scrapy.conf
-   :synopsis: Settings manager
-
 The Scrapy settings allows you to customize the behaviour of all Scrapy
 components, including the core, extensions, pipelines and spiders themselves.
 
@@ -49,20 +46,17 @@ These mechanisms are described in more detail below.
 -------------------
 
 Global overrides are the ones that take most precedence, and are usually
-populated by command-line options.
+populated by command-line options. You can also override one (or more) settings
+from command line using the ``-s`` (or ``--set``) command line option. 
 
-Example::
-   >>> from scrapy.conf import settings
-   >>> settings.overrides['LOG_ENABLED'] = True
-
-You can also override one (or more) settings from command line using the
-``--set`` command line argument. 
+For more information see the :attr:`~scrapy.settings.Settings.overrides`
+Settings attribute.
 
 .. highlight:: sh
 
 Example::
 
-    scrapy crawl domain.com --set LOG_FILE=scrapy.log
+    scrapy crawl domain.com -s LOG_FILE=scrapy.log
 
 2. Project settings module
 --------------------------
@@ -90,82 +84,22 @@ How to access settings
 
 .. highlight:: python
 
-Here's an example of the simplest way to access settings from Python code::
+Settings can be accessed through the :attr:`scrapy.crawler.Crawler.settings`
+attribute of the Crawler that is passed to ``from_crawler`` method in
+extensions and middlewares::
 
-   >>> from scrapy.conf import settings
-   >>> print settings['LOG_ENABLED']
-   True
+    class MyExtension(object):
+
+        @classmethod
+        def from_crawler(cls, crawler):
+            settings = crawler.settings
+            if settings['LOG_ENABLED']:
+                print "log is enabled!"
 
 In other words, settings can be accesed like a dict, but it's usually preferred
 to extract the setting in the format you need it to avoid type errors. In order
-to do that you'll have to use one of the following methods:
-
-.. class:: Settings()
-
-   There is a (singleton) Settings object automatically instantiated when the
-   :mod:`scrapy.conf` module is loaded, and it's usually accessed like this::
-
-   >>> from scrapy.conf import settings
-
-    .. method:: get(name, default=None)
-
-       Get a setting value without affecting its original type.
-
-       :param name: the setting name
-       :type name: string
-
-       :param default: the value to return if no setting is found
-       :type default: any
-
-    .. method:: getbool(name, default=False)
-
-       Get a setting value as a boolean. For example, both ``1`` and ``'1'``, and
-       ``True`` return ``True``, while ``0``, ``'0'``, ``False`` and ``None``
-       return ``False````
-
-       For example, settings populated through environment variables set to ``'0'``
-       will return ``False`` when using this method.
-
-       :param name: the setting name
-       :type name: string
-
-       :param default: the value to return if no setting is found
-       :type default: any
-
-    .. method:: getint(name, default=0)
-
-       Get a setting value as an int
-
-       :param name: the setting name
-       :type name: string
-
-       :param default: the value to return if no setting is found
-       :type default: any
-
-    .. method:: getfloat(name, default=0.0)
-
-       Get a setting value as a float
-
-       :param name: the setting name
-       :type name: string
-
-       :param default: the value to return if no setting is found
-       :type default: any
-
-    .. method:: getlist(name, default=None)
-
-       Get a setting value as a list. If the setting original type is a list it
-       will be returned verbatim. If it's a string it will be split by ",".
-
-       For example, settings populated through environment variables set to
-       ``'one,two'`` will return a list ['one', 'two'] when using this method.
-
-       :param name: the setting name
-       :type name: string
-
-       :param default: the value to return if no setting is found
-       :type default: any
-
+to do that you'll have to use one of the methods provided the
+:class:`~scrapy.settings.Settings` API.
 
 Rationale for setting names
 ===========================
@@ -222,16 +156,6 @@ also for logging.
 It's automatically populated with your project name when you create your
 project with the :command:`startproject` command.
 
-.. setting:: BOT_VERSION
-
-BOT_VERSION
------------
-
-Default: ``1.0``
-
-The version of the bot implemented by this Scrapy project. This will be used to
-construct the User-Agent by default.
-
 .. setting:: CONCURRENT_ITEMS
 
 CONCURRENT_ITEMS
@@ -242,33 +166,39 @@ Default: ``100``
 Maximum number of concurrent items (per response) to process in parallel in the
 Item Processor (also known as the :ref:`Item Pipeline <topics-item-pipeline>`).
 
-.. setting:: CONCURRENT_REQUESTS_PER_SPIDER
+.. setting:: CONCURRENT_REQUESTS
 
-CONCURRENT_REQUESTS_PER_SPIDER
+CONCURRENT_REQUESTS
+-------------------
+
+Default: ``16``
+
+The maximum number of concurrent (ie. simultaneous) requests that will be
+performed by the Scrapy downloader.
+
+
+.. setting:: CONCURRENT_REQUESTS_PER_DOMAIN
+
+CONCURRENT_REQUESTS_PER_DOMAIN
 ------------------------------
 
 Default: ``8``
 
-Specifies how many concurrent (ie. simultaneous) requests will be performed per
-open spider.
+The maximum number of concurrent (ie. simultaneous) requests that will be
+performed to any single domain.
 
-.. setting:: CONCURRENT_SPIDERS
+.. setting:: CONCURRENT_REQUESTS_PER_IP
 
-CONCURRENT_SPIDERS
-------------------
+CONCURRENT_REQUESTS_PER_IP
+--------------------------
 
-Default: ``8``
+Default: ``0``
 
-Maximum number of spiders to scrape in parallel.
-
-.. setting:: COOKIES_DEBUG
-
-COOKIES_DEBUG
--------------
-
-Default: ``False``
-
-Enable debugging message of Cookies Downloader Middleware.
+The maximum number of concurrent (ie. simultaneous) requests that will be
+performed to any single IP. If non-zero, the
+:setting:`CONCURRENT_REQUESTS_PER_DOMAIN` setting is ignored, and this one is
+used instead. In other words, concurrency limits will be applied per IP, not
+per domain.
 
 .. setting:: DEFAULT_ITEM_CLASS
 
@@ -295,17 +225,6 @@ Default::
 The default headers used for Scrapy HTTP Requests. They're populated in the
 :class:`~scrapy.contrib.downloadermiddleware.defaultheaders.DefaultHeadersMiddleware`.
 
-.. setting:: DEFAULT_RESPONSE_ENCODING
-
-DEFAULT_RESPONSE_ENCODING
--------------------------
-
-Default: ``'ascii'``
-
-The default encoding to use for :class:`~scrapy.http.TextResponse` objects (and
-subclasses) when no encoding is declared and no encoding could be inferred from
-the body.
-
 .. setting:: DEPTH_LIMIT
 
 DEPTH_LIMIT
@@ -316,6 +235,17 @@ Default: ``0``
 The maximum depth that will be allowed to crawl for any site. If zero, no limit
 will be imposed.
 
+.. setting:: DEPTH_PRIORITY
+
+DEPTH_PRIORITY
+--------------
+
+Default: ``0``
+
+An integer that is used to adjust the request priority based on its depth.
+
+If zero, no priority adjustment is made from depth.
+
 .. setting:: DEPTH_STATS
 
 DEPTH_STATS
@@ -323,7 +253,26 @@ DEPTH_STATS
 
 Default: ``True``
 
-Whether to collect depth stats.
+Whether to collect maximum depth stats.
+
+.. setting:: DEPTH_STATS_VERBOSE
+
+DEPTH_STATS_VERBOSE
+-------------------
+
+Default: ``False``
+
+Whether to collect verbose depth stats. If this is enabled, the number of
+requests for each depth is collected in the stats.
+
+.. setting:: DNSCACHE_ENABLED
+
+DNSCACHE_ENABLED
+----------------
+
+Default: ``True``
+
+Whether to enable DNS in-memory cache.
 
 .. setting:: DOWNLOADER_DEBUG
 
@@ -354,6 +303,7 @@ Default::
     {
         'scrapy.contrib.downloadermiddleware.robotstxt.RobotsTxtMiddleware': 100,
         'scrapy.contrib.downloadermiddleware.httpauth.HttpAuthMiddleware': 300,
+        'scrapy.contrib.downloadermiddleware.downloadtimeout.DownloadTimeoutMiddleware': 350,
         'scrapy.contrib.downloadermiddleware.useragent.UserAgentMiddleware': 400,
         'scrapy.contrib.downloadermiddleware.retry.RetryMiddleware': 500,
         'scrapy.contrib.downloadermiddleware.defaultheaders.DefaultHeadersMiddleware': 550,
@@ -361,6 +311,7 @@ Default::
         'scrapy.contrib.downloadermiddleware.cookies.CookiesMiddleware': 700,
         'scrapy.contrib.downloadermiddleware.httpproxy.HttpProxyMiddleware': 750,
         'scrapy.contrib.downloadermiddleware.httpcompression.HttpCompressionMiddleware': 800,
+        'scrapy.contrib.downloadermiddleware.chunked.ChunkedTransferMiddleware': 830,
         'scrapy.contrib.downloadermiddleware.stats.DownloaderStats': 850,
         'scrapy.contrib.downloadermiddleware.httpcache.HttpCacheMiddleware': 900,
     }
@@ -442,75 +393,23 @@ The amount of time (in secs) that the downloader will wait before timing out.
 DUPEFILTER_CLASS
 ----------------
 
-Default: ``'scrapy.contrib.dupefilter.RequestFingerprintDupeFilter'``
+Default: ``'scrapy.dupefilter.RFPDupeFilter'``
 
 The class used to detect and filter duplicate requests.
 
-The default (``RequestFingerprintDupeFilter``) filters based on request fingerprint
-(using ``scrapy.utils.request.request_fingerprint``) and grouping per domain.
+The default (``RFPDupeFilter``) filters based on request fingerprint using
+the ``scrapy.utils.request.request_fingerprint`` function.
 
-.. setting:: ENCODING_ALIASES
+.. setting:: jDITOR
 
-ENCODING_ALIASES
-----------------
+EDITOR
+------
 
-Default: ``{}``
+Default: `depends on the environment`
 
-A mapping of custom encoding aliases for your project, where the keys are the
-aliases (and must be lower case) and the values are the encodings they map to.
-
-This setting extends the :setting:`ENCODING_ALIASES_BASE` setting which
-contains some default mappings.
-
-.. setting:: ENCODING_ALIASES_BASE
-
-ENCODING_ALIASES_BASE
----------------------
-
-Default::
-
-    {
-        # gb2312 is superseded by gb18030
-        'gb2312': 'gb18030',
-        'chinese': 'gb18030',
-        'csiso58gb231280': 'gb18030',
-        'euc- cn': 'gb18030',
-        'euccn': 'gb18030',
-        'eucgb2312-cn': 'gb18030',
-        'gb2312-1980': 'gb18030',
-        'gb2312-80': 'gb18030',
-        'iso- ir-58': 'gb18030',
-        # gbk is superseded by gb18030
-        'gbk': 'gb18030',
-        '936': 'gb18030',
-        'cp936': 'gb18030',
-        'ms936': 'gb18030',
-        # latin_1 is a subset of cp1252
-        'latin_1': 'cp1252',
-        'iso-8859-1': 'cp1252',
-        'iso8859-1': 'cp1252',
-        '8859': 'cp1252',
-        'cp819': 'cp1252',
-        'latin': 'cp1252',
-        'latin1': 'cp1252',
-        'l1': 'cp1252',
-        # others
-        'zh-cn': 'gb18030',
-        'win-1251': 'cp1251',
-        'macintosh' : 'mac_roman',
-        'x-sjis': 'shift_jis',
-    }
-
-The default encoding aliases defined in Scrapy. Don't override this setting in
-your project, override :setting:`ENCODING_ALIASES` instead.
-
-The reason why `ISO-8859-1`_ (and all its aliases) are mapped to `CP1252`_ is
-due to a well known browser hack. For more information see: `Character
-encodings in HTML`_.
-
-.. _ISO-8859-1: http://en.wikipedia.org/wiki/ISO/IEC_8859-1
-.. _CP1252: http://en.wikipedia.org/wiki/Windows-1252
-.. _Character encodings in HTML: http://en.wikipedia.org/wiki/Character_encodings_in_HTML
+The editor to use for editing spiders with the :command:`edit` command. It
+defaults to the ``EDITOR`` environment variable, if set. Otherwise, it defaults
+to ``vi`` (on Unix systems) or the IDLE editor (on Windows).
 
 .. setting:: EXTENSIONS
 
@@ -526,7 +425,7 @@ A dict containing the extensions enabled in your project, and their orders.
 EXTENSIONS_BASE
 ---------------
 
-Default:: 
+Default::
 
     {
         'scrapy.contrib.corestats.CoreStats': 0,
@@ -534,7 +433,11 @@ Default::
         'scrapy.telnet.TelnetConsole': 0,
         'scrapy.contrib.memusage.MemoryUsage': 0,
         'scrapy.contrib.memdebug.MemoryDebugger': 0,
-        'scrapy.contrib.closedomain.CloseDomain': 0,
+        'scrapy.contrib.closespider.CloseSpider': 0,
+        'scrapy.contrib.feedexport.FeedExporter': 0,
+        'scrapy.contrib.logstats.LogStats': 0,
+        'scrapy.contrib.spiderstate.SpiderState': 0,
+        'scrapy.contrib.throttle.AutoThrottle': 0,
     }
 
 The list of available extensions. Keep in mind that some of them need to
@@ -687,7 +590,7 @@ Default: ``False``
 
 Scope: ``scrapy.contrib.memusage``
 
-Whether to send a memory usage report after each domain has been closed.
+Whether to send a memory usage report after each spider has been closed.
 
 See :ref:`topics-extensions-ref-memusage`.
 
@@ -789,52 +692,31 @@ Default: ``'scrapy.core.scheduler.Scheduler'``
 
 The scheduler to use for crawling.
 
-.. setting:: SCHEDULER_ORDER 
+.. setting:: SPIDER_MIDDLEWARES
 
-SCHEDULER_ORDER
----------------
 
-Default: ``'DFO'``
-
-Scope: ``scrapy.core.scheduler``
-
-The order to use for the crawling scheduler. Available orders are: 
-
-* ``'BFO'``:  `Breadth-first order`_ - typically consumes more memory but
-  reaches most relevant pages earlier.
-
-* ``'DFO'``:  `Depth-first order`_ - typically consumes less memory than
-  but takes longer to reach most relevant pages.
-
-.. _Breadth-first order: http://en.wikipedia.org/wiki/Breadth-first_search
-.. _Depth-first order: http://en.wikipedia.org/wiki/Depth-first_search
-
-.. setting:: SCHEDULER_MIDDLEWARES
-
-SCHEDULER_MIDDLEWARES
----------------------
+SPIDER_CONTRACTS
+----------------
 
 Default:: ``{}``
 
-A dict containing the scheduler middlewares enabled in your project, and their
-orders. 
+A dict containing the scrapy contracts enabled in your project, used for
+testing spiders. For more info see :ref:`topics-contracts`.
 
-.. setting:: SCHEDULER_MIDDLEWARES_BASE
+SPIDER_CONTRACTS_BASE
+---------------------
 
-SCHEDULER_MIDDLEWARES_BASE
---------------------------
+Default::
 
-Default:: 
-
-    SCHEDULER_MIDDLEWARES_BASE = {
-        'scrapy.contrib.schedulermiddleware.duplicatesfilter.DuplicatesFilterMiddleware': 500,
+    {
+        'scrapy.contracts.default.UrlContract' : 1,
+        'scrapy.contracts.default.ReturnsContract': 2,
+        'scrapy.contracts.default.ScrapesContract': 3,
     }
 
-A dict containing the scheduler middlewares enabled by default in Scrapy. You
-should never modify this setting in your project, modify
-:setting:`SCHEDULER_MIDDLEWARES` instead. 
-
-.. setting:: SPIDER_MIDDLEWARES
+A dict containing the scrapy contracts enabled by default in Scrapy. You should
+never modify this setting in your project, modify :setting:`SPIDER_CONTRACTS`
+instead. For more info see :ref:`topics-contracts`.
 
 SPIDER_MIDDLEWARES
 ------------------
@@ -853,7 +735,6 @@ Default::
 
     {
         'scrapy.contrib.spidermiddleware.httperror.HttpErrorMiddleware': 50,
-        'scrapy.contrib.itemsampler.ItemSamplerMiddleware': 100,
         'scrapy.contrib.spidermiddleware.offsite.OffsiteMiddleware': 500,
         'scrapy.contrib.spidermiddleware.referer.RefererMiddleware': 700,
         'scrapy.contrib.spidermiddleware.urllength.UrlLengthMiddleware': 800,
@@ -878,18 +759,6 @@ Example::
 
     SPIDER_MODULES = ['mybot.spiders_prod', 'mybot.spiders_dev']
 
-.. setting:: SQLITE_DB
-
-SQLITE_DB
----------
-
-Default: ``'scrapy.db'``
-
-The location of the project SQLite database, used for storing the spider queue
-and other persistent data of the project. If a relative path is given, is taken
-relative to the project data dir. For more info see:
-:ref:`topics-project-structure`.
-
 .. setting:: STATS_CLASS
 
 STATS_CLASS
@@ -897,28 +766,20 @@ STATS_CLASS
 
 Default: ``'scrapy.statscol.MemoryStatsCollector'``
 
-The class to use for collecting stats (must implement the Stats Collector API,
-or subclass the StatsCollector class).
+The class to use for collecting stats, who must implement the
+:ref:`topics-api-stats`.
 
 .. setting:: STATS_DUMP
 
 STATS_DUMP
 ----------
 
-Default: ``False``
-
-Dump (to log) domain-specific stats collected when a domain is closed, and all
-global stats when the Scrapy process finishes (ie. when the engine is
-shutdown).
-
-.. setting:: STATS_ENABLED
-
-STATS_ENABLED
--------------
-
 Default: ``True``
 
-Enable stats collection.
+Dump the :ref:`Scrapy stats <topics-stats>` (to the Scrapy log) once the spider
+finishes.
+
+For more info see: :ref:`topics-stats`.
 
 .. setting:: STATSMAILER_RCPTS
 
@@ -927,7 +788,7 @@ STATSMAILER_RCPTS
 
 Default: ``[]`` (empty list)
 
-Send Scrapy stats after domains finish scraping. See
+Send Scrapy stats after spiders finish scraping. See
 :class:`~scrapy.contrib.statsmailer.StatsMailer` for more info.
 
 .. setting:: TELNETCONSOLE_ENABLED
@@ -978,8 +839,10 @@ the default value for this setting see: http://www.boutell.com/newfaq/misc/urlle
 USER_AGENT
 ----------
 
-Default: ``"%s/%s" % (BOT_NAME, BOT_VERSION)``
+Default: ``"Scrapy/VERSION (+http://scrapy.org)"``
 
 The default User-Agent to use when crawling, unless overridden. 
 
 .. _Amazon web services: http://aws.amazon.com/
+.. _breadth-first order: http://en.wikipedia.org/wiki/Breadth-first_search
+.. _depth-first order: http://en.wikipedia.org/wiki/Depth-first_search

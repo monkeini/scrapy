@@ -2,10 +2,10 @@ import signal
 
 from twisted.internet import reactor, defer
 
-from scrapy.xlib.pydispatch import dispatcher
-from scrapy.queue import ExecutionQueue
 from scrapy.core.engine import ExecutionEngine
+from scrapy.resolver import CachingThreadedResolver
 from scrapy.extension import ExtensionManager
+from scrapy.signalmanager import SignalManager
 from scrapy.utils.ossignal import install_shutdown_handlers, signal_names
 from scrapy.utils.misc import load_object
 from scrapy import log, signals
@@ -16,6 +16,8 @@ class Crawler(object):
     def __init__(self, settings):
         self.configured = False
         self.settings = settings
+        self.signals = SignalManager(self)
+        self.stats = load_object(settings['STATS_CLASS'])(self)
 
     def install(self):
         import scrapy.project
@@ -31,54 +33,30 @@ class Crawler(object):
         if self.configured:
             return
         self.configured = True
-        self.extensions = ExtensionManager.from_settings(self.settings)
+        lf_cls = load_object(self.settings['LOG_FORMATTER'])
+        self.logformatter = lf_cls.from_crawler(self)
+        self.extensions = ExtensionManager.from_crawler(self)
         spman_cls = load_object(self.settings['SPIDER_MANAGER_CLASS'])
-        self.spiders = spman_cls.from_settings(self.settings)
-        spq_cls = load_object(self.settings['SPIDER_QUEUE_CLASS'])
-        spq = spq_cls.from_settings(self.settings)
-        keepalive = self.settings.getbool('KEEP_ALIVE')
-        pollint = self.settings.getfloat('QUEUE_POLL_INTERVAL')
-        self.queue = ExecutionQueue(self.spiders, spq, poll_interval=pollint,
-            keep_alive=keepalive)
-        self.engine = ExecutionEngine(self.settings, self._spider_closed)
+        self.spiders = spman_cls.from_crawler(self)
+        self.engine = ExecutionEngine(self, self._spider_closed)
 
-    @defer.inlineCallbacks
-    def _start_next_spider(self):
-        spider, requests = yield defer.maybeDeferred(self.queue.get_next)
-        if spider:
-            self._start_spider(spider, requests)
-        if self.engine.has_capacity() and not self._nextcall.active():
-            self._nextcall = reactor.callLater(self.queue.poll_interval, \
-                self._spider_closed)
-
-    @defer.inlineCallbacks
-    def _start_spider(self, spider, requests):
-        """Don't call this method. Use self.queue to start new spiders"""
+    def crawl(self, spider, requests=None):
         spider.set_crawler(self)
-        yield defer.maybeDeferred(self.engine.open_spider, spider)
-        for request in requests:
-            self.engine.crawl(request, spider)
+        if requests is None:
+            requests = spider.start_requests()
+        return self.engine.open_spider(spider, requests)
 
-    @defer.inlineCallbacks
     def _spider_closed(self, spider=None):
         if not self.engine.open_spiders:
-            is_finished = yield defer.maybeDeferred(self.queue.is_finished)
-            if is_finished:
-                self.stop()
-                return
-        if self.engine.has_capacity():
-            self._start_next_spider()
+            self.stop()
 
     @defer.inlineCallbacks
     def start(self):
         yield defer.maybeDeferred(self.configure)
         yield defer.maybeDeferred(self.engine.start)
-        self._nextcall = reactor.callLater(0, self._start_next_spider)
 
     @defer.inlineCallbacks
     def stop(self):
-        if self._nextcall.active():
-            self._nextcall.cancel()
         if self.engine.running:
             yield defer.maybeDeferred(self.engine.stop)
 
@@ -91,11 +69,13 @@ class CrawlerProcess(Crawler):
 
     def __init__(self, *a, **kw):
         super(CrawlerProcess, self).__init__(*a, **kw)
-        dispatcher.connect(self.stop, signals.engine_stopped)
+        self.signals.connect(self.stop, signals.engine_stopped)
         install_shutdown_handlers(self._signal_shutdown)
 
     def start(self):
         super(CrawlerProcess, self).start()
+        if self.settings.getbool('DNSCACHE_ENABLED'):
+            reactor.installResolver(CachingThreadedResolver(reactor))
         reactor.addSystemEventTrigger('before', 'shutdown', self.stop)
         reactor.run(installSignalHandlers=False) # blocking call
 
@@ -113,13 +93,13 @@ class CrawlerProcess(Crawler):
     def _signal_shutdown(self, signum, _):
         install_shutdown_handlers(self._signal_kill)
         signame = signal_names[signum]
-        log.msg("Received %s, shutting down gracefully. Send again to force " \
-            "unclean shutdown" % signame, level=log.INFO)
+        log.msg(format="Received %(signame)s, shutting down gracefully. Send again to force ",
+                level=log.INFO, signame=signame)
         reactor.callFromThread(self.stop)
 
     def _signal_kill(self, signum, _):
         install_shutdown_handlers(signal.SIG_IGN)
         signame = signal_names[signum]
-        log.msg('Received %s twice, forcing unclean shutdown' % signame, \
-            level=log.INFO)
+        log.msg(format='Received %(signame)s twice, forcing unclean shutdown',
+                level=log.INFO, signame=signame)
         reactor.callFromThread(self._stop_reactor)

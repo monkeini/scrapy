@@ -8,14 +8,14 @@ import xmlrpclib
 
 from scrapy.http.request import Request
 from scrapy.utils.python import get_func_args
+
 from scrapy.utils.py26 import json
+
 
 DUMPS_ARGS = get_func_args(xmlrpclib.dumps)
 
 
 class XmlRpcRequest(Request):
-
-    __slots__ = ()
 
     def __init__(self, *args, **kwargs):
         encoding = kwargs.get('encoding', None)
@@ -50,8 +50,7 @@ class JsonRpcRequest(Request):
                           'method': self.rpc_method,
                           'params': kwargs.pop("rpc_params"),
                           'id': 1}
-            
-        
+
         # spec defines that requests must use POST method
         kwargs.setdefault('method', 'POST')
 

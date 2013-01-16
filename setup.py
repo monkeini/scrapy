@@ -3,8 +3,6 @@
 # It doesn't depend on setuptools, but if setuptools is available it'll use
 # some of its features, like package dependencies.
 
-from __future__ import with_statement
-
 from distutils.command.install_data import install_data
 from distutils.command.install import INSTALL_SCHEMES
 from subprocess import Popen, PIPE
@@ -82,10 +80,10 @@ scripts = ['bin/scrapy']
 if os.name == 'nt':
     scripts.append('extras/scrapy.bat')
 
-if os.environ.get('SCRAPY_VERSION_FROM_HG'):
-    rev = Popen(["hg", "tip", "--template", "{rev}"], stdout=PIPE).communicate()[0]
+if os.environ.get('SCRAPY_VERSION_FROM_GIT'):
+    v = Popen("git describe", shell=True, stdout=PIPE).communicate()[0]
     with open('scrapy/__init__.py', 'a') as f:
-        f.write("\n__version__ = '.'.join(map(str, version_info)) + '.%s'" % rev)
+        f.write("\n__version__ = '%s'" % v.strip())
 version = __import__('scrapy').__version__
 
 setup_args = {
@@ -93,7 +91,7 @@ setup_args = {
     'version': version,
     'url': 'http://scrapy.org',
     'description': 'A high-level Python Screen Scraping framework',
-    'long_description': 'Scrapy is a high level scraping and web crawling framework for writing spiders to crawl and parse web pages for all kinds of purposes, from information retrieval to monitoring or testing web sites.',
+    'long_description': open('README.rst').read(),
     'author': 'Scrapy developers',
     'maintainer': 'Pablo Hoffman',
     'maintainer_email': 'pablo@pablohoffman.com',
@@ -104,7 +102,6 @@ setup_args = {
     'scripts': scripts,
     'classifiers': [
         'Programming Language :: Python',
-        'Programming Language :: Python :: 2.5',
         'Programming Language :: Python :: 2.6',
         'Programming Language :: Python :: 2.7',
         'License :: OSI Approved :: BSD License',
@@ -120,10 +117,9 @@ setup_args = {
 
 try:
     from setuptools import setup
-    setup_args['install_requires'] = ['Twisted>=2.5', 'lxml']
-    if sys.version_info < (2, 6):
-        setup_args['install_requires'] += ['simplejson']
 except ImportError:
     from distutils.core import setup
+else:
+    setup_args['install_requires'] = ['Twisted>=8.0', 'w3lib>=1.2', 'lxml', 'pyOpenSSL']
  
 setup(**setup_args)

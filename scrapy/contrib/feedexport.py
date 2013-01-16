@@ -9,18 +9,16 @@ from tempfile import TemporaryFile
 from datetime import datetime
 from urlparse import urlparse
 from ftplib import FTP
-from shutil import copyfileobj
 
 from zope.interface import Interface, implements
-
 from twisted.internet import defer, threads
+from w3lib.url import file_uri_to_path
+
 from scrapy import log, signals
-from scrapy.xlib.pydispatch import dispatcher
 from scrapy.utils.ftp import ftp_makedirs_cwd
 from scrapy.exceptions import NotConfigured
 from scrapy.utils.misc import load_object
-from scrapy.utils.url import file_uri_to_path
-from scrapy.conf import settings
+from scrapy.utils.python import get_func_args
 
 
 class IFeedStorage(Interface):
@@ -29,7 +27,11 @@ class IFeedStorage(Interface):
     def __init__(uri):
         """Initialize the storage with the parameters given in the URI"""
 
-    def store(file, spider):
+    def open(spider):
+        """Open the storage for the given spider. It must return a file-like
+        object that will be used for the exporters"""
+
+    def store(file):
         """Store the given file stream"""
 
 
@@ -37,10 +39,13 @@ class BlockingFeedStorage(object):
 
     implements(IFeedStorage)
 
-    def store(self, file, spider):
-        return threads.deferToThread(self._store_in_thread, file, spider)
+    def open(self, spider):
+        return TemporaryFile(prefix='feed-')
 
-    def _store_in_thread(self, file, spider):
+    def store(self, file):
+        return threads.deferToThread(self._store_in_thread, file)
+
+    def _store_in_thread(self, file):
         raise NotImplementedError
 
 
@@ -51,27 +56,32 @@ class StdoutFeedStorage(object):
     def __init__(self, uri, _stdout=sys.stdout):
         self._stdout = _stdout
 
-    def store(self, file, spider):
-        copyfileobj(file, self._stdout)
+    def open(self, spider):
+        return self._stdout
 
+    def store(self, file):
+        pass
 
-class FileFeedStorage(BlockingFeedStorage):
+class FileFeedStorage(object):
+
+    implements(IFeedStorage)
 
     def __init__(self, uri):
         self.path = file_uri_to_path(uri)
 
-    def _store_in_thread(self, file, spider):
+    def open(self, spider):
         dirname = os.path.dirname(self.path)
         if dirname and not os.path.exists(dirname):
             os.makedirs(dirname)
-        f = open(self.path, 'wb')
-        copyfileobj(file, f)
-        f.close()
+        return open(self.path, 'ab')
 
+    def store(self, file):
+        file.close()
 
 class S3FeedStorage(BlockingFeedStorage):
 
     def __init__(self, uri):
+        from scrapy.conf import settings
         try:
             import boto
         except ImportError:
@@ -83,7 +93,8 @@ class S3FeedStorage(BlockingFeedStorage):
         self.secret_key = u.password or settings['AWS_SECRET_ACCESS_KEY']
         self.keyname = u.path
 
-    def _store_in_thread(self, file, spider):
+    def _store_in_thread(self, file):
+        file.seek(0)
         conn = self.connect_s3(self.access_key, self.secret_key)
         bucket = conn.get_bucket(self.bucketname, validate=False)
         key = bucket.new_key(self.keyname)
@@ -101,7 +112,8 @@ class FTPFeedStorage(BlockingFeedStorage):
         self.password = u.password
         self.path = u.path
 
-    def _store_in_thread(self, file, spider):
+    def _store_in_thread(self, file):
+        file.seek(0)
         ftp = FTP()
         ftp.connect(self.host, self.port)
         ftp.login(self.username, self.password)
@@ -112,14 +124,17 @@ class FTPFeedStorage(BlockingFeedStorage):
 
 
 class SpiderSlot(object):
-    def __init__(self, file, exp):
+    def __init__(self, file, exporter, storage, uri):
         self.file = file
-        self.exporter = exp
+        self.exporter = exporter
+        self.storage = storage
+        self.uri = uri
         self.itemcount = 0
 
 class FeedExporter(object):
 
-    def __init__(self):
+    def __init__(self, settings):
+        self.settings = settings
         self.urifmt = settings['FEED_URI']
         if not self.urifmt:
             raise NotConfigured
@@ -134,44 +149,52 @@ class FeedExporter(object):
         uripar = settings['FEED_URI_PARAMS']
         self._uripar = load_object(uripar) if uripar else lambda x, y: None
         self.slots = {}
-        dispatcher.connect(self.open_spider, signals.spider_opened)
-        dispatcher.connect(self.close_spider, signals.spider_closed)
-        dispatcher.connect(self.item_passed, signals.item_passed)
+
+    @classmethod
+    def from_crawler(cls, crawler):
+        if len(get_func_args(cls)) < 1:
+            # FIXME: remove for scrapy 0.17
+            import warnings
+            from scrapy.exceptions import ScrapyDeprecationWarning
+            warnings.warn("%s must receive a settings object as first constructor argument." % cls.__name__,
+                ScrapyDeprecationWarning, stacklevel=2)
+            o = cls()
+        else:
+            o = cls(crawler.settings)
+        crawler.signals.connect(o.open_spider, signals.spider_opened)
+        crawler.signals.connect(o.close_spider, signals.spider_closed)
+        crawler.signals.connect(o.item_scraped, signals.item_scraped)
+        return o
 
     def open_spider(self, spider):
-        file = TemporaryFile(prefix='feed-')
-        exp = self._get_exporter(file)
-        exp.start_exporting()
-        self.slots[spider] = SpiderSlot(file, exp)
+        uri = self.urifmt % self._get_uri_params(spider)
+        storage = self._get_storage(uri)
+        file = storage.open(spider)
+        exporter = self._get_exporter(file)
+        exporter.start_exporting()
+        self.slots[spider] = SpiderSlot(file, exporter, storage, uri)
 
     def close_spider(self, spider):
         slot = self.slots.pop(spider)
         if not slot.itemcount and not self.store_empty:
             return
         slot.exporter.finish_exporting()
-        nbytes = slot.file.tell()
-        slot.file.seek(0)
-        uri = self.urifmt % self._get_uri_params(spider)
-        storage = self._get_storage(uri)
-        if not storage:
-            return
-        logfmt = "%%s %s feed (%d items, %d bytes) in: %s" % (self.format, \
-            slot.itemcount, nbytes, uri)
-        d = defer.maybeDeferred(storage.store, slot.file, spider)
+        logfmt = "%%s %s feed (%d items) in: %s" % (self.format, \
+            slot.itemcount, slot.uri)
+        d = defer.maybeDeferred(slot.storage.store, slot.file)
         d.addCallback(lambda _: log.msg(logfmt % "Stored", spider=spider))
         d.addErrback(log.err, logfmt % "Error storing", spider=spider)
-        d.addBoth(lambda _: slot.file.close())
         return d
 
-    def item_passed(self, item, spider):
+    def item_scraped(self, item, spider):
         slot = self.slots[spider]
         slot.exporter.export_item(item)
         slot.itemcount += 1
         return item
 
     def _load_components(self, setting_prefix):
-        conf = dict(settings['%s_BASE' % setting_prefix])
-        conf.update(settings[setting_prefix])
+        conf = dict(self.settings['%s_BASE' % setting_prefix])
+        conf.update(self.settings[setting_prefix])
         d = {}
         for k, v in conf.items():
             try:

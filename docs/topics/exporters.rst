@@ -39,16 +39,20 @@ the end of the exporting process
 Here you can see an :doc:`Item Pipeline <item-pipeline>` which uses an Item
 Exporter to export scraped items to different files, one per spider::
 
-   from scrapy.xlib.pydispatch import dispatcher
    from scrapy import signals
    from scrapy.contrib.exporter import XmlItemExporter
 
    class XmlExportPipeline(object):
 
        def __init__(self):
-           dispatcher.connect(self.spider_opened, signals.spider_opened) 
-           dispatcher.connect(self.spider_closed, signals.spider_closed)
            self.files = {}
+
+        @classmethod
+        def from_crawler(cls, crawler):
+            pipeline = cls()
+            crawler.signals.connect(pipeline.spider_opened, signals.spider_opened)
+            crawler.signals.connect(pipeline.spider_closed, signals.spider_closed)
+            return pipeline
 
        def spider_opened(self, spider):
            file = open('%s_products.xml' % spider.name, 'w+b')
@@ -264,7 +268,7 @@ XmlItemExporter
 CsvItemExporter
 ---------------
 
-.. class:: CsvItemExporter(file, include_headers_line=True, \**kwargs)
+.. class:: CsvItemExporter(file, include_headers_line=True, join_multivalued=',', \**kwargs)
 
    Exports Items in CSV format to the given file-like object. If the
    :attr:`fields_to_export` attribute is set, it will be used to define the
@@ -277,6 +281,10 @@ CsvItemExporter
       line with the field names taken from 
       :attr:`BaseItemExporter.fields_to_export` or the first exported item fields.
    :type include_headers_line: boolean
+
+   :param join_multivalued: The char (or chars) that will be used for joining
+      multi-valued fields, if found.
+   :type include_headers_line: str
 
    The additional keyword arguments of this constructor are passed to the
    :class:`BaseItemExporter` constructor, and the leftover arguments to the

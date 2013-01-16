@@ -9,40 +9,42 @@ from scrapy.http import Request
 
 class DepthMiddleware(object):
 
-    def __init__(self, maxdepth, stats=None):
+    def __init__(self, maxdepth, stats=None, verbose_stats=False, prio=1):
         self.maxdepth = maxdepth
         self.stats = stats
-        if self.stats and self.maxdepth:
-            stats.set_value('envinfo/request_depth_limit', maxdepth)
+        self.verbose_stats = verbose_stats
+        self.prio = prio
 
     @classmethod
-    def from_settings(cls, settings):
+    def from_crawler(cls, crawler):
+        settings = crawler.settings
         maxdepth = settings.getint('DEPTH_LIMIT')
-        usestats = settings.getbool('DEPTH_STATS')
-        if usestats:
-            from scrapy.stats import stats
-        else:
-            stats = None
-        return cls(maxdepth, stats)
+        verbose = settings.getbool('DEPTH_STATS_VERBOSE')
+        prio = settings.getint('DEPTH_PRIORITY')
+        return cls(maxdepth, crawler.stats, verbose, prio)
 
     def process_spider_output(self, response, result, spider):
         def _filter(request):
             if isinstance(request, Request):
-                depth = response.request.meta['depth'] + 1
+                depth = response.meta['depth'] + 1
                 request.meta['depth'] = depth
+                if self.prio:
+                    request.priority -= depth * self.prio
                 if self.maxdepth and depth > self.maxdepth:
-                    log.msg("Ignoring link (depth > %d): %s " % (self.maxdepth, request.url), \
-                        level=log.DEBUG, spider=spider)
+                    log.msg(format="Ignoring link (depth > %(maxdepth)d): %(requrl)s ",
+                            level=log.DEBUG, spider=spider,
+                            maxdepth=self.maxdepth, requrl=request.url)
                     return False
                 elif self.stats:
-                    self.stats.inc_value('request_depth_count/%s' % depth, spider=spider)
-                    if depth > self.stats.get_value('request_depth_max', 0, spider=spider):
-                        self.stats.set_value('request_depth_max', depth, spider=spider)
+                    if self.verbose_stats:
+                        self.stats.inc_value('request_depth_count/%s' % depth, spider=spider)
+                    self.stats.max_value('request_depth_max', depth, spider=spider)
             return True
 
         # base case (depth=0)
-        if self.stats and 'depth' not in response.request.meta: 
-            response.request.meta['depth'] = 0
-            self.stats.inc_value('request_depth_count/0', spider=spider)
+        if self.stats and 'depth' not in response.meta:
+            response.meta['depth'] = 0
+            if self.verbose_stats:
+                self.stats.inc_value('request_depth_count/0', spider=spider)
 
         return (r for r in result or () if _filter(r))

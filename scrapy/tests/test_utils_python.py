@@ -4,7 +4,7 @@ from itertools import count
 
 from scrapy.utils.python import str_to_unicode, unicode_to_str, \
     memoizemethod_noargs, isbinarytext, equal_attributes, \
-    WeakKeyCache, stringify_dict
+    WeakKeyCache, stringify_dict, get_func_args
 
 __doctests__ = ['scrapy.utils.python']
 
@@ -22,6 +22,9 @@ class UtilsPythonTestCase(unittest.TestCase):
         # converting a strange object should raise TypeError
         self.assertRaises(TypeError, str_to_unicode, 423)
 
+        # check errors argument works
+        assert u'\ufffd' in str_to_unicode('a\xedb', 'utf-8', errors='replace')
+
     def test_unicode_to_str(self):
         # converting a unicode object to an utf-8 encoded string
         self.assertEqual(unicode_to_str(u'\xa3 49'), '\xc2\xa3 49')
@@ -34,6 +37,9 @@ class UtilsPythonTestCase(unittest.TestCase):
 
         # converting a strange object should raise TypeError
         self.assertRaises(TypeError, unicode_to_str, unittest)
+
+        # check errors argument works
+        assert '?' in unicode_to_str(u'a\ufffdb', 'latin-1', errors='replace')
 
     def test_memoizemethod_noargs(self):
         class A(object):
@@ -147,6 +153,39 @@ class UtilsPythonTestCase(unittest.TestCase):
         self.failUnlessEqual(d, d2)
         self.failIf(d is d2) # shouldn't modify in place
         self.failIf(any(isinstance(x, unicode) for x in d2.keys()))
+
+    def test_get_func_args(self):
+        def f1(a, b, c):
+            pass
+
+        def f2(a, b=None, c=None):
+            pass
+
+        class A(object):
+            def __init__(self, a, b, c):
+                pass
+
+            def method(self, a, b, c):
+                pass
+
+        class Callable(object):
+
+            def __call__(self, a, b, c):
+                pass
+
+        a = A(1, 2, 3)
+        cal = Callable()
+
+        self.assertEqual(get_func_args(f1), ['a', 'b', 'c'])
+        self.assertEqual(get_func_args(f2), ['a', 'b', 'c'])
+        self.assertEqual(get_func_args(A), ['a', 'b', 'c'])
+        self.assertEqual(get_func_args(a.method), ['a', 'b', 'c'])
+        self.assertEqual(get_func_args(cal), ['a', 'b', 'c'])
+        self.assertEqual(get_func_args(object), [])
+
+        # TODO: how do we fix this to return the actual argument names?
+        self.assertEqual(get_func_args(unicode.split), [])
+        self.assertEqual(get_func_args(" ".join), [])
 
 if __name__ == "__main__":
     unittest.main()

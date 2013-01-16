@@ -4,8 +4,8 @@ import re
 import hashlib
 from pkgutil import iter_modules
 
+from w3lib.html import remove_entities
 from scrapy.utils.python import flatten
-from scrapy.utils.markup import remove_entities
 
 def arg_to_iter(arg):
     """Convert an argument to an iterable. The argument can be a None, single
@@ -75,7 +75,7 @@ def extract_regex(regex, text, encoding='utf-8'):
     """
 
     if isinstance(regex, basestring):
-        regex = re.compile(regex)
+        regex = re.compile(regex, re.UNICODE)
 
     try:
         strings = [regex.search(text).group('extract')]   # named group
@@ -103,4 +103,3 @@ def md5sum(file):
             break
         m.update(d)
     return m.hexdigest()
-

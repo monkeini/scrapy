@@ -77,18 +77,11 @@ requests). They provide a convenient mechanism for extending Scrapy
 functionality by plugging custom code. For more information see
 :ref:`topics-spider-middleware`.
 
-Scheduler middlewares
----------------------
-
-Scheduler middlewares are specific hooks that sit between the Engine and the
-Scheduler and process requests when they pass from the Engine to the Scheduler
-and vice-versa. They provide a convenient mechanism for extending Scrapy
-functionality by plugging custom code.
-
 Data flow
 =========
 
-The data flow in Scrapy is controlled by the Engine, and goes like this:
+The data flow in Scrapy is controlled by the execution engine, and goes like
+this:
 
 1. The Engine opens a domain, locates the Spider that handles that domain, and
    asks the spider for the first URLs to crawl.

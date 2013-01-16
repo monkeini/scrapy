@@ -21,7 +21,7 @@ A common (and useful) convention to use for the version name is the revision
 number of the version control tool you're using to track your Scrapy project
 code. For example: ``r23``. The versions are not compared alphabetically but
 using a smarter algorithm (the same `distutils`_ uses) so ``r10`` compares
-greater to ``r9``, for example. 
+greater to ``r9``, for example.
 
 How Scrapyd works
 =================
@@ -86,7 +86,9 @@ in your Ubuntu servers.
 So, if you plan to deploy Scrapyd on a Ubuntu server, just add the Ubuntu
 repositories as described in :ref:`topics-ubuntu` and then run::
 
-    aptitude install scrapyd-0.13
+    aptitude install scrapyd-X.YY
+
+Where ``X.YY`` is the Scrapy version, for example: ``0.14``.
 
 This will install Scrapyd in your Ubuntu server creating a ``scrapy`` user
 which Scrapyd will run as. It will also create some directories and files that
@@ -151,6 +153,11 @@ http_port
 
 The TCP port where the HTTP JSON API will listen. Defaults to ``6800``.
 
+bind_address
+------------
+
+The IP address where the HTTP JSON API will listen. Defaults to ``0.0.0.0`` (all)
+
 max_proc
 --------
 
@@ -185,12 +192,35 @@ spider queues).
 logs_dir
 --------
 
-The directory where the Scrapy processes logs will be stored.
+The directory where the Scrapy logs will be stored. If you want to disable
+storing logs set this option empty, like this::
 
-logs_to_keep
+    logs_dir =
+
+.. _items_dir:
+
+items_dir
+---------
+
+.. versionadded:: 0.15
+
+The directory where the Scrapy items will be stored. If you want to disable
+storing feeds of scraped items (perhaps, because you use a database or other
+storage) set this option empty, like this::
+
+    items_dir =
+
+.. _jobs_to_keep:
+
+jobs_to_keep
 ------------
 
-The number of logs to keep per spider. Defaults to ``5``.
+.. versionadded:: 0.15
+
+The number of finished jobs to keep per spider. Defaults to ``5``. This
+includes logs and items.
+
+This setting was named ``logs_to_keep`` in previous versions.
 
 runner
 ------
@@ -313,6 +343,12 @@ revision, for example ``r382``::
 
     scrapy deploy scrapyd -p project1 --version HG
 
+And, if you use Git for tracking your project source code, you can use
+``GIT`` for the version which will be replaced by the SHA1 of current Git
+revision, for example ``b0582849179d1de7bd86eaa7201ea3cda4b5651f``::
+
+    scrapy deploy scrapyd -p project1 --version GIT
+
 Support for other version discovery sources may be added in the future.
 
 Finally, if you don't want to specify the target, project and version every
@@ -329,6 +365,35 @@ time you run ``scrapy deploy`` you can define the defaults in the
 This way, you can deploy your project just by using::
 
     scrapy deploy
+
+Local settings
+--------------
+
+Sometimes, while your working on your projects, you may want to override your
+certain settings with certain local settings that shouldn't be deployed to
+Scrapyd, but only used locally to develop and debug your spiders.
+
+One way to deal with this is to have a ``local_settings.py`` at the root of
+your project (where the ``scrapy.cfg`` file resides) and add these lines to the
+end of your project settings::
+
+    try:
+        from local_settings import *
+    except ImportError:
+        pass
+
+``scrapy deploy`` won't deploy anything outside the project module so the
+``local_settings.py`` file won't be deployed.
+
+Here's the directory structure, to illustrate::
+
+    scrapy.cfg
+    local_settings.py
+    myproject/
+        __init__.py
+        settings.py
+        spiders/
+            ...
 
 .. _topics-egg-caveats:
 
@@ -357,7 +422,7 @@ Scheduling a spider run
 To schedule a spider run::
 
     $ curl http://localhost:6800/schedule.json -d project=myproject -d spider=spider2
-    {"status": "ok"}
+    {"status": "ok", "jobid": "26d1b1a6d6f111e0be5c001e648c57f8"}
 
 For more resources see: :ref:`topics-scrapyd-jsonapi` for more available resources.
 
@@ -398,15 +463,19 @@ Example reponse::
 
     {"status": "ok", "spiders": 3}
 
+.. _scrapyd-schedule:
+
 schedule.json
 -------------
 
-Schedule a spider run.
+Schedule a spider run (also known as a job), returning the job id.
 
 * Supported Request Methods: ``POST``
 * Parameters:
+
   * ``project`` (string, required) - the project name
   * ``spider`` (string, required) - the spider name
+  * ``setting`` (string, optional) - a scrapy setting to use when running the spider
   * any other parameter is passed as spider argument
 
 Example request::
@@ -415,7 +484,36 @@ Example request::
 
 Example response::
 
-    {"status": "ok"}
+    {"status": "ok", "jobid": "6487ec79947edab326d6db28a2d86511e8247444"}
+
+Example request passing a spider argument (``arg1``) and a setting
+(:setting:`DOWNLOAD_DELAY`)::
+
+    $ curl http://localhost:6800/schedule.json -d project=myproject -d spider=somespider -d setting=DOWNLOAD_DELAY=2 -d arg1=val1
+
+.. _cancel.json:
+
+cancel.json
+-----------
+
+.. versionadded:: 0.15
+
+Cancel a spider run (aka. job). If the job is pending, it will be removed. If
+the job is running, it will be terminated.
+
+* Supported Request Methods: ``POST``
+* Parameters:
+
+  * ``project`` (string, required) - the project name
+  * ``job`` (string, required) - the job id
+
+Example request::
+
+    $ curl http://localhost:6800/cancel.json -d project=myproject -d job=6487ec79947edab326d6db28a2d86511e8247444
+
+Example response::
+
+    {"status": "ok", "prevstate": "running"}
 
 listprojects.json
 -----------------
@@ -441,6 +539,7 @@ in order, the last one is the currently used version.
 
 * Supported Request Methods: ``GET``
 * Parameters:
+
   * ``project`` (string, required) - the project name
 
 Example request::
@@ -458,6 +557,7 @@ Get the list of spiders available in the last version of some project.
 
 * Supported Request Methods: ``GET``
 * Parameters:
+
   * ``project`` (string, required) - the project name
 
 Example request::
@@ -468,6 +568,33 @@ Example response::
 
     {"status": "ok", "spiders": ["spider1", "spider2", "spider3"]}
 
+.. _listjobs.json:
+
+listjobs.json
+-------------
+
+.. versionadded:: 0.15
+
+Get the list of pending, running and finished jobs of some project.
+
+* Supported Request Methods: ``GET``
+* Parameters:
+
+  * ``project`` (string, required) - the project name
+
+Example request::
+
+    $ curl http://localhost:6800/listjobs.json?project=myproject
+
+Example response::
+
+    {"status": "ok",
+     "pending": [{"id": "78391cc0fcaf11e1b0090800272a6d06", "spider": "spider1"}],
+     "running": [{"id": "422e608f9f28cef127b3d5ef93fe9399", "spider": "spider2"}],
+     "finished": [{"id": "2f16646cfcaf11e1b0090800272a6d06", "spider": "spider3", "start_time": "2012-09-12 10:14:03.594664", "end_time": "2012-09-12 10:24:03.594664"}]}
+
+.. note:: All job data is kept in memory and will be reset when the Scrapyd service is restarted. See :issue:`173`.
+
 delversion.json
 ---------------
 
@@ -476,6 +603,7 @@ project, that project will be deleted too.
 
 * Supported Request Methods: ``POST``
 * Parameters:
+
   * ``project`` (string, required) - the project name
   * ``version`` (string, required) - the project version
 
@@ -494,6 +622,7 @@ Delete a project and all its uploaded versions.
 
 * Supported Request Methods: ``POST``
 * Parameters:
+
   * ``project`` (string, required) - the project name
 
 Example request::

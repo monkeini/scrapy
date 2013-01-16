@@ -4,15 +4,16 @@ Item Exporters are used to export/serialize items into different formats.
 
 import csv
 import pprint
-from cPickle import Pickler
+import marshal
+import json
+import cPickle as pickle
 from xml.sax.saxutils import XMLGenerator
-
-from scrapy.utils.py26 import json
+from scrapy.utils.serialize import ScrapyJSONEncoder
 
 
 __all__ = ['BaseItemExporter', 'PprintItemExporter', 'PickleItemExporter', \
     'CsvItemExporter', 'XmlItemExporter', 'JsonLinesItemExporter', \
-    'JsonItemExporter']
+    'JsonItemExporter', 'MarshalItemExporter']
 
 class BaseItemExporter(object):
 
@@ -79,7 +80,7 @@ class JsonLinesItemExporter(BaseItemExporter):
     def __init__(self, file, **kwargs):
         self._configure(kwargs)
         self.file = file
-        self.encoder = json.JSONEncoder(**kwargs)
+        self.encoder = ScrapyJSONEncoder(**kwargs)
 
     def export_item(self, item):
         itemdict = dict(self._get_serialized_fields(item))
@@ -91,7 +92,7 @@ class JsonItemExporter(JsonLinesItemExporter):
     def __init__(self, file, **kwargs):
         self._configure(kwargs)
         self.file = file
-        self.encoder = json.JSONEncoder(**kwargs)
+        self.encoder = ScrapyJSONEncoder(**kwargs)
         self.first_item = True
 
     def start_exporting(self):
@@ -143,11 +144,20 @@ class XmlItemExporter(BaseItemExporter):
 
 class CsvItemExporter(BaseItemExporter):
 
-    def __init__(self, file, include_headers_line=True, **kwargs):
+    def __init__(self, file, include_headers_line=True, join_multivalued=',', **kwargs):
         self._configure(kwargs, dont_fail=True)
         self.include_headers_line = include_headers_line
         self.csv_writer = csv.writer(file, **kwargs)
         self._headers_not_written = True
+        self._join_multivalued = join_multivalued
+
+    def _to_str_if_unicode(self, value):
+        if isinstance(value, (list, tuple)):
+            try:
+                value = self._join_multivalued.join(value)
+            except TypeError: # list in value may not contain strings
+                pass
+        return super(CsvItemExporter, self)._to_str_if_unicode(value)
 
     def export_item(self, item):
         if self._headers_not_written:
@@ -168,12 +178,24 @@ class CsvItemExporter(BaseItemExporter):
 
 class PickleItemExporter(BaseItemExporter):
 
-    def __init__(self, file, protocol=0, **kwargs):
+    def __init__(self, file, protocol=2, **kwargs):
         self._configure(kwargs)
-        self.pickler = Pickler(file, protocol)
+        self.file =file
+        self.protocol = protocol
 
     def export_item(self, item):
-        self.pickler.dump(dict(self._get_serialized_fields(item)))
+        d = dict(self._get_serialized_fields(item))
+        pickle.dump(d, self.file, self.protocol)
+
+
+class MarshalItemExporter(BaseItemExporter):
+
+    def __init__(self, file, **kwargs):
+        self._configure(kwargs)
+        self.file = file
+
+    def export_item(self, item):
+        marshal.dump(dict(self._get_serialized_fields(item)), self.file)
 
 
 class PprintItemExporter(BaseItemExporter):

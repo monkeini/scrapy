@@ -7,14 +7,16 @@ See documentation in docs/topics/shell.rst
 import signal
 
 from twisted.internet import reactor, threads
+from twisted.python import threadable
+from w3lib.url import any_to_uri
 
 from scrapy.item import BaseItem
 from scrapy.spider import BaseSpider
 from scrapy.selector import XPathSelector, XmlXPathSelector, HtmlXPathSelector
 from scrapy.utils.spider import create_spider_for_request
 from scrapy.utils.misc import load_object
+from scrapy.utils.request import request_deferred
 from scrapy.utils.response import open_in_browser
-from scrapy.utils.url import any_to_uri
 from scrapy.utils.console import start_python_console
 from scrapy.settings import Settings
 from scrapy.http import Request, Response, HtmlResponse, XmlResponse
@@ -24,23 +26,18 @@ class Shell(object):
     relevant_classes = (BaseSpider, Request, Response, BaseItem, \
         XPathSelector, Settings)
 
-    def __init__(self, crawler, update_vars=None, inthread=False, code=None):
+    def __init__(self, crawler, update_vars=None, code=None):
         self.crawler = crawler
         self.update_vars = update_vars or (lambda x: None)
         self.item_class = load_object(crawler.settings['DEFAULT_ITEM_CLASS'])
-        self.inthread = inthread
+        self.spider = None
+        self.inthread = not threadable.isInIOThread()
         self.code = code
         self.vars = {}
 
-    def start(self, *a, **kw):
+    def start(self, url=None, request=None, response=None, spider=None):
         # disable accidental Ctrl-C key press from shutting down the engine
         signal.signal(signal.SIGINT, signal.SIG_IGN)
-        if self.inthread:
-            return threads.deferToThread(self._start, *a, **kw)
-        else:
-            self._start(*a, **kw)
-
-    def _start(self, url=None, request=None, response=None, spider=None):
         if url:
             self.fetch(url, spider)
         elif request:
@@ -56,14 +53,22 @@ class Shell(object):
             start_python_console(self.vars)
 
     def _schedule(self, request, spider):
+        spider = self._open_spider(request, spider)
+        d = request_deferred(request)
+        d.addCallback(lambda x: (x, spider))
+        self.crawler.engine.crawl(request, spider)
+        return d
+
+    def _open_spider(self, request, spider):
+        if self.spider:
+            return self.spider
         if spider is None:
             spider = create_spider_for_request(self.crawler.spiders, request, \
                 BaseSpider('default'), log_multiple=True)
         spider.set_crawler(self.crawler)
-        self.crawler.engine.open_spider(spider)
-        d = self.crawler.engine.schedule(request, spider)
-        d.addCallback(lambda x: (x, spider))
-        return d
+        self.crawler.engine.open_spider(spider, close_if_idle=False)
+        self.spider = spider
+        return spider
 
     def fetch(self, request_or_url, spider=None):
         if isinstance(request_or_url, Request):
@@ -72,6 +77,7 @@ class Shell(object):
         else:
             url = any_to_uri(request_or_url)
             request = Request(url, dont_filter=True)
+            request.meta['handle_httpstatus_all'] = True
         response = None
         response, spider = threads.blockingCallFromThread(reactor, \
             self._schedule, request, spider)

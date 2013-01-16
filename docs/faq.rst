@@ -3,7 +3,7 @@
 Frequently Asked Questions
 ==========================
 
-How does Scrapy compare to BeautifulSoul or lxml?
+How does Scrapy compare to BeautifulSoup or lxml?
 -------------------------------------------------
 
 `BeautifulSoup`_ and `lxml`_ are libraries for parsing HTML and XML. Scrapy is
@@ -29,19 +29,13 @@ comparing `jinja2`_ to `Django`_.
 What Python versions does Scrapy support?
 -----------------------------------------
 
-Scrapy runs in Python 2.5, 2.6 and 2.6. But it's recommended you use Python 2.6
-or above, since the Python 2.5 standard library has a few bugs in their URL
-handling libraries. Some of these Python 2.5 bugs not only affect Scrapy but
-any user code, such as spiders. You can see a list of `Python 2.5 bugs that
-affect Scrapy`_ in the issue tracker.
-
-.. _Python 2.5 bugs that affect Scrapy: http://dev.scrapy.org/query?status=accepted&status=assigned&status=new&status=reopened&order=priority&keywords=~py25-bug
+Scrapy runs in Python 2.6 and 2.7.
 
 Does Scrapy work with Python 3.0?
 ---------------------------------
 
 No, and there are no plans to port Scrapy to Python 3.0 yet. At the moment,
-Scrapy works with Python 2.5, 2.6 and 2.7.
+Scrapy works with Python 2.6 and 2.7.
 
 .. seealso:: :ref:`faq-python-versions`.
 
@@ -84,10 +78,17 @@ How can I simulate a user login in my spider?
 
 See :ref:`topics-request-response-ref-request-userlogin`.
 
-Can I crawl in breadth-first order instead of depth-first order?
-----------------------------------------------------------------
+Does Scrapy crawl in breath-first or depth-first order?
+-------------------------------------------------------
 
-Yes, there's a setting for that: :setting:`SCHEDULER_ORDER`.
+By default, Scrapy uses a `LIFO`_ queue for storing pending requests, which
+basically means that it crawls in `DFO order`_. This order is more convenient
+in most cases. If you do want to crawl in true `BFO order`_, you can do it by
+setting the following settings::
+
+    DEPTH_PRIORITY = 1
+    SCHEDULER_DISK_QUEUE = 'scrapy.squeue.PickleFifoDiskQueue'
+    SCHEDULER_MEMORY_QUEUE = 'scrapy.squeue.FifoMemoryQueue'
 
 My Scrapy crawler has memory leaks. What can I do?
 --------------------------------------------------
@@ -115,24 +116,10 @@ Try changing the default `Accept-Language`_ request header by overriding the
 
 .. _Accept-Language: http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html#sec14.4
 
-Where can I find some example code using Scrapy?
-------------------------------------------------
+Where can I find some example Scrapy projects?
+----------------------------------------------
 
-Scrapy comes with a built-in, fully functional project to scrape the `Google
-Directory`_. You can find it in the `examples/googledir`_ directory of the
-Scrapy distribution.
-
-Also, there's a site for sharing code snippets (spiders, middlewares,
-extensions) called `Scrapy snippets`_.
-
-Finally, you can find some example code for performing not-so-trivial tasks in
-the `Scrapy Recipes`_ wiki page.
-
-.. _Google Directory: http://www.google.com/dirhp
-.. _examples/googledir: http://dev.scrapy.org/browser/examples/googledir
-.. _Community Spiders: http://dev.scrapy.org/wiki/CommunitySpiders
-.. _Scrapy Recipes: http://dev.scrapy.org/wiki/ScrapyRecipes
-.. _Scrapy snippets: http://snippets.scrapy.org/
+See :ref:`intro-examples`.
 
 Can I run a spider without creating a project?
 ----------------------------------------------
@@ -207,15 +194,15 @@ Simplest way to dump all my scraped items into a JSON/CSV/XML file?
 
 To dump into a JSON file::
 
-    scrapy crawl myspider --set FEED_URI=items.json --set FEED_FORMAT=json
+    scrapy crawl myspider -o items.json -t json
 
 To dump into a CSV file::
 
-    scrapy crawl myspider --set FEED_URI=items.csv --set FEED_FORMAT=csv
+    scrapy crawl myspider -o items.csv -t csv
 
 To dump into a XML file::
 
-    scrapy crawl myspider --set FEED_URI=items.xml --set FEED_FORMAT=xml
+    scrapy crawl myspider -o items.xml -t xml
 
 For more information see :ref:`topics-feed-exports`
 
@@ -228,3 +215,60 @@ which scrapes one of these sites.
 
 .. _this page: http://search.cpan.org/~ecarroll/HTML-TreeBuilderX-ASP_NET-0.09/lib/HTML/TreeBuilderX/ASP_NET.pm
 .. _example spider: http://github.com/AmbientLighter/rpn-fas/blob/master/fas/spiders/rnp.py
+
+What's the best way to parse big XML/CSV data feeds?
+----------------------------------------------------
+
+Parsing big feeds with XPath selectors can be problematic since they need to
+build the DOM of the entire feed in memory, and this can be quite slow and
+consume a lot of memory.
+
+In order to avoid parsing all the entire feed at once in memory, you can use
+the functions ``xmliter`` and ``csviter`` from ``scrapy.utils.iterators``
+module. In fact, this is what the feed spiders (see :ref:`topics-spiders`) use
+under the cover.
+
+Does Scrapy manage cookies automatically?
+-----------------------------------------
+
+Yes, Scrapy receives and keeps track of cookies sent by servers, and sends them
+back on subsequent requests, like any regular web browser does.
+
+For more info see :ref:`topics-request-response` and :ref:`cookies-mw`.
+
+How can I see the cookies being sent and received from Scrapy?
+--------------------------------------------------------------
+
+Enable the :setting:`COOKIES_DEBUG` setting.
+
+How can I instruct a spider to stop itself?
+-------------------------------------------
+
+Raise the :exc:`~scrapy.exceptions.CloseSpider` exception from a callback. For
+more info see: :exc:`~scrapy.exceptions.CloseSpider`.
+
+How can I prevent my Scrapy bot from getting banned?
+----------------------------------------------------
+
+See :ref:`bans`.
+
+Should I use spider arguments or settings to configure my spider?
+-----------------------------------------------------------------
+
+Both :ref:`spider arguments <spiderargs>` and :ref:`settings <topics-settings>`
+can be used to configure your spider. There is no strict rule that mandates to
+use one or the other, but settings are more suited for parameters that, once
+set, don't change much, while spider arguments are meant to change more often,
+even on each spider run and sometimes are required for the spider to run at all
+(for example, to set the start url of a spider).
+
+To illustrate with an example, assuming you have a spider that needs to log
+into a site to scrape data, and you only want to scrape data from a certain
+section of the site (which varies each time). In that case, the credentials to
+log in would be settings, while the url of the section to scrape would be a
+spider argument.
+
+.. _user agents: http://en.wikipedia.org/wiki/User_agent
+.. _LIFO: http://en.wikipedia.org/wiki/LIFO
+.. _DFO order: http://en.wikipedia.org/wiki/Depth-first_search
+.. _BFO order: http://en.wikipedia.org/wiki/Breadth-first_search

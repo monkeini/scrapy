@@ -4,7 +4,6 @@ import unittest
 from scrapy.http import HtmlResponse
 from scrapy.link import Link
 from scrapy.contrib.linkextractors.sgml import SgmlLinkExtractor, BaseSgmlLinkExtractor
-from scrapy.contrib.linkextractors.image import HTMLImageLinkExtractor
 from scrapy.tests import get_testdata
 
 class LinkExtractorTestCase(unittest.TestCase):
@@ -50,6 +49,13 @@ class LinkExtractorTestCase(unittest.TestCase):
         response = HtmlResponse("https://example.org/somepage/index.html", body=html)
         self.assertEqual(lx.extract_links(response),
                          [Link(url='https://noschemedomain.com/path/to/item/12.html', text='Item 12')])
+
+    def test_link_text_wrong_encoding(self):
+        html = """<body><p><a href="item/12.html">Wrong: \xed</a></p></body></html>"""
+        response = HtmlResponse("http://www.example.com", body=html, encoding='utf-8')
+        lx = BaseSgmlLinkExtractor()
+        self.assertEqual(lx.extract_links(response),
+             [Link(url='http://www.example.com/item/12.html', text=u'Wrong: \ufffd')])
 
     def test_extraction_encoding(self):
         body = get_testdata('link_extractor', 'linkextractor_noenc.html')
@@ -128,10 +134,6 @@ class SgmlLinkExtractorTestCase(unittest.TestCase):
         self.assertEqual([link for link in lx.extract_links(self.response)],
             [ Link(url='http://www.google.com/something', text=u'') ])
 
-        lx = SgmlLinkExtractor(tags=('img', ), attrs=('src', ))
-        self.assertEqual([link for link in lx.extract_links(self.response)],
-            [ Link(url='http://example.com/sample2.jpg', text=u'') ])
-
     def test_extraction_using_single_values(self):
         '''Test the extractor's behaviour among different situations'''
 
@@ -204,6 +206,13 @@ class SgmlLinkExtractorTestCase(unittest.TestCase):
         self.assertEqual(lx.extract_links(response),
                          [Link(url='http://example.org/about.html', text=u'About us\xa3')])
 
+    def test_deny_extensions(self):
+        html = """<a href="page.html">asd</a> and <a href="photo.jpg">"""
+        response = HtmlResponse("http://example.org/", body=html)
+        lx = SgmlLinkExtractor()
+        self.assertEqual(lx.extract_links(response),
+            [Link(url='http://example.org/page.html', text=u'asd')])
+
     def test_process_value(self):
         """Test restrict_xpaths with encodings"""
         html = """
@@ -231,50 +240,6 @@ class SgmlLinkExtractorTestCase(unittest.TestCase):
                          [Link(url='http://otherdomain.com/base/item/12.html', text='Item 12')])
 
 
-class HTMLImageLinkExtractorTestCase(unittest.TestCase):
-    def setUp(self):
-        body = get_testdata('link_extractor', 'image_linkextractor.html')
-        self.response = HtmlResponse(url='http://example.com/index', body=body)
-
-    def tearDown(self):
-        del self.response
-
-    def test_urls_type(self):
-        '''Test that the resulting urls are regular strings and not a unicode objects'''
-        lx = HTMLImageLinkExtractor()
-        links = lx.extract_links(self.response)
-        self.assertTrue(all(isinstance(link.url, str) for link in links))
-
-    def test_extraction(self):
-        '''Test the extractor's behaviour among different situations'''
-
-        lx = HTMLImageLinkExtractor(locations=('//img', ))
-        links_1 = lx.extract_links(self.response)
-        self.assertEqual(links_1,
-            [ Link(url='http://example.com/sample1.jpg', text=u'sample 1'),
-              Link(url='http://example.com/sample2.jpg', text=u'sample 2'),
-              Link(url='http://example.com/sample4.jpg', text=u'sample 4') ])
-
-        lx = HTMLImageLinkExtractor(locations=('//img', ), unique=False)
-        links_2 = lx.extract_links(self.response)
-        self.assertEqual(links_2,
-            [ Link(url='http://example.com/sample1.jpg', text=u'sample 1'),
-              Link(url='http://example.com/sample2.jpg', text=u'sample 2'),
-              Link(url='http://example.com/sample4.jpg', text=u'sample 4'),
-              Link(url='http://example.com/sample4.jpg', text=u'sample 4 repetition') ])
-
-        lx = HTMLImageLinkExtractor(locations=('//div[@id="wrapper"]', ))
-        links_3 = lx.extract_links(self.response)
-        self.assertEqual(links_3,
-            [ Link(url='http://example.com/sample1.jpg', text=u'sample 1'),
-              Link(url='http://example.com/sample2.jpg', text=u'sample 2'),
-              Link(url='http://example.com/sample4.jpg', text=u'sample 4') ])
-
-        lx = HTMLImageLinkExtractor(locations=('//a', ))
-        links_4 = lx.extract_links(self.response)
-        self.assertEqual(links_4,
-            [ Link(url='http://example.com/sample2.jpg', text=u'sample 2'),
-              Link(url='http://example.com/sample3.html', text=u'sample 3') ])
 
 if __name__ == "__main__":
     unittest.main()

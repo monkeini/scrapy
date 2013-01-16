@@ -1,16 +1,13 @@
-from __future__ import with_statement
-
 import os
+from pkgutil import get_data
 from cStringIO import StringIO
 
 from twisted.trial import unittest
 
-from scrapy.utils.py26 import get_data
+from scrapy.utils.test import get_pythonpath
 from scrapyd.interfaces import IEggStorage
 from scrapyd.utils import get_crawl_args, get_spider_list
 from scrapyd import get_application
-
-__package__ = 'scrapyd.tests' # required for compatibility with python 2.5
 
 class UtilsTest(unittest.TestCase):
 
@@ -20,6 +17,12 @@ class UtilsTest(unittest.TestCase):
         msg = {'_project': 'lolo', '_spider': 'lala', 'arg1': u'val1'}
         cargs = get_crawl_args(msg)
         self.assertEqual(cargs, ['lala', '-a', 'arg1=val1'])
+        assert all(isinstance(x, str) for x in cargs), cargs
+
+    def test_get_crawl_args_with_settings(self):
+        msg = {'_project': 'lolo', '_spider': 'lala', 'arg1': u'val1', 'settings': {'ONE': 'two'}}
+        cargs = get_crawl_args(msg)
+        self.assertEqual(cargs, ['lala', '-a', 'arg1=val1', '-s', 'ONE=two'])
         assert all(isinstance(x, str) for x in cargs), cargs
 
 class GetSpiderListTest(unittest.TestCase):
@@ -43,5 +46,6 @@ class GetSpiderListTest(unittest.TestCase):
         eggstorage = app.getComponent(IEggStorage)
         eggfile = StringIO(get_data(__package__, 'mybot.egg'))
         eggstorage.put(eggfile, 'mybot', 'r1')
-        self.assertEqual(sorted(get_spider_list('mybot')), ['spider1', 'spider2'])
+        spiders = get_spider_list('mybot', pythonpath=get_pythonpath())
+        self.assertEqual(sorted(spiders), ['spider1', 'spider2'])
 

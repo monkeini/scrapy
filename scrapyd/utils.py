@@ -3,7 +3,7 @@ import os
 from subprocess import Popen, PIPE
 from ConfigParser import NoSectionError
 
-from scrapy.spiderqueue import SqliteSpiderQueue
+from scrapyd.spiderqueue import SqliteSpiderQueue
 from scrapy.utils.python import stringify_dict, unicode_to_str
 from scrapyd.config import Config
 
@@ -40,17 +40,23 @@ def get_crawl_args(message):
     msg = message.copy()
     args = [unicode_to_str(msg['_spider'])]
     del msg['_project'], msg['_spider']
+    settings = msg.pop('settings', {})
     for k, v in stringify_dict(msg, keys_only=False).items():
         args += ['-a']
         args += ['%s=%s' % (k, v)]
+    for k, v in stringify_dict(settings, keys_only=False).items():
+        args += ['-s']
+        args += ['%s=%s' % (k, v)]
     return args
 
-def get_spider_list(project, runner=None):
+def get_spider_list(project, runner=None, pythonpath=None):
     """Return the spider list from the given project, using the given runner"""
     if runner is None:
         runner = Config().get('runner')
     env = os.environ.copy()
     env['SCRAPY_PROJECT'] = project
+    if pythonpath:
+        env['PYTHONPATH'] = pythonpath
     pargs = [sys.executable, '-m', runner, 'list']
     proc = Popen(pargs, stdout=PIPE, stderr=PIPE, env=env)
     out, err = proc.communicate()

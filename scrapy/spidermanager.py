@@ -5,11 +5,10 @@ spiders
 
 from zope.interface import implements
 
-from scrapy import log, signals
+from scrapy import signals
 from scrapy.interfaces import ISpiderManager
 from scrapy.utils.misc import walk_modules
 from scrapy.utils.spider import iter_spider_classes
-from scrapy.xlib.pydispatch import dispatcher
 
 
 class SpiderManager(object):
@@ -22,7 +21,6 @@ class SpiderManager(object):
         for name in self.spider_modules:
             for module in walk_modules(name):
                 self._load_spiders(module)
-        dispatcher.connect(self.close_spider, signals.spider_closed)
 
     def _load_spiders(self, module):
         for spcls in iter_spider_classes(module):
@@ -32,8 +30,18 @@ class SpiderManager(object):
     def from_settings(cls, settings):
         return cls(settings.getlist('SPIDER_MODULES'))
 
+    @classmethod
+    def from_crawler(cls, crawler):
+        sm = cls.from_settings(crawler.settings)
+        crawler.signals.connect(sm.close_spider, signals.spider_closed)
+        return sm
+
     def create(self, spider_name, **spider_kwargs):
-        return self._spiders[spider_name](**spider_kwargs)
+        try:
+            spcls = self._spiders[spider_name]
+        except KeyError:
+            raise KeyError("Spider not found: %s" % spider_name)
+        return spcls(**spider_kwargs)
 
     def find_by_request(self, request):
         return [name for name, cls in self._spiders.iteritems()

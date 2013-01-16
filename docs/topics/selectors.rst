@@ -1,8 +1,8 @@
 .. _topics-selectors:
 
-===============
-XPath Selectors
-===============
+=========
+Selectors
+=========
 
 When you're scraping web pages, the most common task you need to perform is
 to extract data from the HTML source. There are several libraries available to
@@ -69,7 +69,7 @@ To explain how to use the selectors we'll use the `Scrapy shell` (which
 provides interactive testing) and an example page located in the Scrapy
 documentation server:
 
-    http://doc.scrapy.org/_static/selectors-sample1.html
+    http://doc.scrapy.org/en/latest/_static/selectors-sample1.html
 
 .. _topics-selectors-htmlcode:
 
@@ -82,7 +82,7 @@ Here's its HTML code:
 
 First, let's open the shell::
 
-    scrapy shell http://doc.scrapy.org/_static/selectors-sample1.html
+    scrapy shell http://doc.scrapy.org/en/latest/_static/selectors-sample1.html
 
 Then, after the shell loads, you'll have some selectors already instantiated and
 ready to use.
@@ -361,15 +361,15 @@ XmlXPathSelector examples
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Here's a couple of :class:`XmlXPathSelector` examples to illustrate several
-concepts.  In all cases we assume there is already a :class:`XmlPathSelector`
+concepts.  In both cases we assume there is already an :class:`XmlPathSelector`
 instantiated with a :class:`~scrapy.http.Response` object like this::
 
-      x = HtmlXPathSelector(xml_response)
+      x = XmlPathSelector(xml_response)
 
 1. Select all ``<product>`` elements from a XML response body, returning a list of
    :class:`XPathSelector` objects (ie. a :class:`XPathSelectorList` object)::
 
-      x.select("//h1")
+      x.select("//product")
 
 2. Extract all prices from a `Google Base XML feed`_ which requires registering
    a namespace::

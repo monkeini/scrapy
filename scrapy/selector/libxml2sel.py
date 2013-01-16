@@ -2,15 +2,16 @@
 XPath selectors based on libxml2
 """
 
-import libxml2
+from scrapy import optional_features
+if 'libxml2' in optional_features:
+    import libxml2
 
 from scrapy.http import TextResponse
 from scrapy.utils.python import unicode_to_str
 from scrapy.utils.misc import extract_regex
 from scrapy.utils.trackref import object_ref
 from scrapy.utils.decorator import deprecated
-from .factories import xmlDoc_from_html, xmlDoc_from_xml
-from .document import Libxml2Document
+from .libxml2document import Libxml2Document, xmlDoc_from_html, xmlDoc_from_xml
 from .list import XPathSelectorList
 
 __all__ = ['HtmlXPathSelector', 'XmlXPathSelector', 'XPathSelector', \
@@ -21,7 +22,7 @@ class XPathSelector(object_ref):
     __slots__ = ['doc', 'xmlNode', 'expr', '__weakref__']
 
     def __init__(self, response=None, text=None, node=None, parent=None, expr=None):
-        if parent:
+        if parent is not None:
             self.doc = parent.doc
             self.xmlNode = node
         elif response:
@@ -37,6 +38,7 @@ class XPathSelector(object_ref):
     def select(self, xpath):
         if hasattr(self.xmlNode, 'xpathEval'):
             self.doc.xpathContext.setContextNode(self.xmlNode)
+            xpath = unicode_to_str(xpath, 'utf-8')
             try:
                 xpath_result = self.doc.xpathContext.xpathEval(xpath)
             except libxml2.xpathError:
